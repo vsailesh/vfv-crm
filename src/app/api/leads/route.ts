@@ -3,6 +3,7 @@ import db from "@/lib/db";
 import { ok, bad } from "@/lib/api";
 import { STAGES } from "@/lib/db";
 import { leadScore } from "@/lib/lead-score";
+import { runStageAutomations, runWorkflows } from "@/lib/automation";
 
 const STAGE_KEYS = STAGES.map((s) => s.key);
 
@@ -76,7 +77,9 @@ export async function PATCH(req: NextRequest) {
     `act_${Date.now()}`, (db.prepare("SELECT customerId FROM leads WHERE id = ?").get(body.id) as { customerId: string }).customerId,
     "stage", `Moved ${lead.status} → ${body.status}`, now
   );
-  return ok({ id: body.id, status: body.status });
+  const customerId = (db.prepare("SELECT customerId FROM leads WHERE id = ?").get(body.id) as { customerId: string }).customerId;
+  const auto = runStageAutomations(body.status, customerId);
+  return ok({ id: body.id, status: body.status, automation: auto });
 }
 
 // POST /api/leads — new lead (creates customer + lead)
@@ -96,5 +99,6 @@ export async function POST(req: NextRequest) {
   db.prepare("INSERT INTO leads (id, customerId, status, source, assignedStaffId, noteCount, activityCount, value, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,0,0,?,?,?)")
     .run(lid, cid, stage, "manual", null, Math.max(0, Math.round(Number(b.value) || 0)), JSON.stringify([{ status: stage, at: now }]), now, now);
   db.prepare("UPDATE customers SET leadStage=? WHERE id=?").run(stage, cid);
+  runWorkflows("lead_created", cid);
   return ok({ leadId: lid, customerId: cid });
 }

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import db from "@/lib/db";
 import { ok, bad } from "@/lib/api";
+import { runStageAutomations, runWorkflows } from "@/lib/automation";
 
 // GET /api/customers?page&limit&q&status&source&staff&tab(active|archived-less: prospect|active)
 export async function GET(req: NextRequest) {
@@ -53,6 +54,8 @@ export async function POST(req: NextRequest) {
     const lid = `lead_${Date.now().toString(36)}`;
     db.prepare("INSERT INTO leads (id, customerId, status, source, value, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?)")
       .run(lid, id, b.stage, b.source ?? "manual", Math.max(0, Math.round(Number(b.value) || 0)), JSON.stringify([{ status: b.stage, at: now }]), now, now);
+    runWorkflows("lead_created", id);
+    runStageAutomations(b.stage, id);
   }
   return ok({ id });
 }

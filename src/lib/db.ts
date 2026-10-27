@@ -69,6 +69,24 @@ CREATE TABLE IF NOT EXISTS leads (
   updatedAt TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS workflows (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  triggerOn TEXT NOT NULL,               -- lead_created | stage_enter:<stage>
+  actions TEXT NOT NULL DEFAULT '[]',    -- JSON [{type: task|note, ...}]
+  enabled INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cadences (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  stageKey TEXT NOT NULL,                -- leads entering this stage auto-enroll
+  steps TEXT NOT NULL DEFAULT '[]',      -- JSON [{day, channel, text}]
+  active INTEGER NOT NULL DEFAULT 1,
+  createdAt TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS segments (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -510,6 +528,30 @@ function seedInner() {
 
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('aiTokens', '100000')").run();
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('whatsappPhone', '919964559178')").run();
+
+  // automation — workflows (trigger → task/note) and cadences (step sequences)
+  const insWf = db.prepare("INSERT INTO workflows (id, name, triggerOn, actions, enabled, createdAt) VALUES (?,?,?,?,1,?)");
+  insWf.run("wf_0", "New lead first touch", "lead_created",
+    JSON.stringify([{ type: "task", title: "First-touch WhatsApp — greet + ask goal", dueInDays: 1 }]), iso(15 * day));
+  insWf.run("wf_1", "Qualified — pricing packet", "stage_enter:qualified",
+    JSON.stringify([
+      { type: "task", title: "Send pricing sheet + book consult call", dueInDays: 1 },
+      { type: "note", text: "Workflow: qualified pricing packet queued" },
+    ]), iso(15 * day));
+  insWf.run("wf_2", "Negotiation — owner check-in", "stage_enter:negotiation",
+    JSON.stringify([{ type: "task", title: "Owner check-in call — close or revive", dueInDays: 2 }]), iso(15 * day));
+
+  const insCad = db.prepare("INSERT INTO cadences (id, name, stageKey, steps, active, createdAt) VALUES (?,?,?,?,1,?)");
+  insCad.run("cad_0", "New lead nurture", "new", JSON.stringify([
+    { day: 0, channel: "whatsapp", text: "Intro message — clinic intro + ask their goal" },
+    { day: 2, channel: "call", text: "Call attempt — consultation pitch" },
+    { day: 5, channel: "whatsapp", text: "Send panchakarma brochure + testimonial" },
+    { day: 9, channel: "task", text: "Decide: advance to Contacted or mark Junk" },
+  ]), iso(15 * day));
+  insCad.run("cad_1", "Contacted push", "contacted", JSON.stringify([
+    { day: 1, channel: "call", text: "Second call attempt" },
+    { day: 4, channel: "whatsapp", text: "Follow-up — answer questions, offer slot" },
+  ]), iso(15 * day));
 }
 
 // Immediate transaction takes the write lock up front, so concurrent build
