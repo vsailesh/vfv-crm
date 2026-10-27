@@ -2,8 +2,15 @@ import { NextRequest } from "next/server";
 import db from "@/lib/db";
 import { ok, bad } from "@/lib/api";
 import { STAGES } from "@/lib/db";
+import { leadScore } from "@/lib/lead-score";
 
 const STAGE_KEYS = STAGES.map((s) => s.key);
+
+type LeadRow = {
+  id: string; status: string; source: string; noteCount: number; activityCount: number;
+  createdAt: string; updatedAt: string; customerId: string; fullName: string; phone: string;
+  email: string | null; customerStatus: string; assignedToStaffName: string | null;
+};
 
 // GET /api/leads?page=1&limit=20&status=new&q=search
 export async function GET(req: NextRequest) {
@@ -37,7 +44,10 @@ export async function GET(req: NextRequest) {
      LIMIT ? OFFSET ?`
   ).all(...params, limit, (page - 1) * limit);
 
-  return ok({ data: rows, meta: { page, limit, total, pages: Math.ceil(total / limit) } });
+  return ok({
+    data: (rows as LeadRow[]).map((r) => ({ ...r, score: leadScore(r) })),
+    meta: { page, limit, total, pages: Math.ceil(total / limit) },
+  });
 }
 
 // PATCH /api/leads — {id, status} moves a lead between stages (kanban drag)

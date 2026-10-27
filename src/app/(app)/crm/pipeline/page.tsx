@@ -18,6 +18,7 @@ type Lead = {
   customerStatus: string;
   customerId: string;
   assignedToStaffName: string | null;
+  score?: number;
 };
 
 const PAGE_SIZE = 40;
@@ -201,6 +202,20 @@ function FilterPill({ active, onClick, children }: { active: boolean; onClick: (
   );
 }
 
+function ScoreChip({ score }: { score: number }) {
+  const tone =
+    score >= 70
+      ? "bg-emerald-50 text-emerald-700"
+      : score >= 40
+        ? "bg-amber-50 text-amber-700"
+        : "bg-gray-100 text-gray-500";
+  return (
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold ${tone}`} title={`Lead score ${score}/100`}>
+      {score}
+    </span>
+  );
+}
+
 function Column({
   stage, count, children,
 }: { stage: (typeof STAGES)[number]; count: number; children: React.ReactNode }) {
@@ -239,7 +254,10 @@ function LeadCard({ lead }: { lead: Lead }) {
         isDragging ? "z-10 opacity-60 ring-2 ring-lime" : ""
       }`}
     >
-      <p className="truncate text-sm font-semibold">{lead.fullName}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="truncate text-sm font-semibold">{lead.fullName}</p>
+        {typeof lead.score === "number" && <ScoreChip score={lead.score} />}
+      </div>
       <p className="mt-0.5 text-xs text-gray-500">+91 {lead.phone}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <Badge variant={lead.source}>{lead.source}</Badge>
