@@ -128,6 +128,26 @@ CREATE TABLE IF NOT EXISTS campaigns (
   createdAt TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS qr_codes (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,               -- short slug used in /r/<code>
+  name TEXT NOT NULL,
+  redirectType TEXT NOT NULL DEFAULT 'custom_url', -- custom_url | google_review | whatsapp
+  destinationUrl TEXT NOT NULL,
+  prefillMessage TEXT,
+  autoResponse TEXT,
+  utmSource TEXT,
+  utmMedium TEXT,
+  utmCampaign TEXT,
+  campaignTag TEXT,
+  status TEXT NOT NULL DEFAULT 'live',     -- live | paused
+  scans INTEGER NOT NULL DEFAULT 0,
+  newScans INTEGER NOT NULL DEFAULT 0,
+  existingScans INTEGER NOT NULL DEFAULT 0,
+  lastScanAt TEXT,
+  createdAt TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -295,7 +315,18 @@ function seedInner() {
   insA.run("act_0", customersWithLeads[0].id, "stage", "Lead created from website form", iso(2 * day));
   insA.run("act_1", customersWithLeads[1].id, "assign", "Assigned to Naveen (round robin)", iso(2 * day));
 
+  // QR codes sample
+  const insQr = db.prepare(
+    `INSERT INTO qr_codes (id, code, name, redirectType, destinationUrl, prefillMessage, campaignTag, status, scans, newScans, existingScans, lastScanAt, createdAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  insQr.run("qr_0", "z9x1rjr5", "Test", "custom_url", "https://buzbiz.ai", null, "test", "live", 4, 0, 3, iso(25 * day), iso(28 * day));
+  insQr.run("qr_1", "dwlfl7k2", "Diwali Flyer", "whatsapp",
+    "https://wa.me/919964559178?text=Hi%2C%20I%20scanned%20your%20Diwali%20flyer%20QR%20and%20want%20to%20book%21",
+    "Hi, I scanned your Diwali flyer QR and want to book!", "diwali-2026", "paused", 0, 0, 0, null, iso(6 * day));
+
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('aiTokens', '100000')").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('whatsappPhone', '919964559178')").run();
 }
 
 // Immediate transaction takes the write lock up front, so concurrent build

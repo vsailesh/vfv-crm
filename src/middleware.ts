@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 const AUTH_COOKIE = "vfv_session";
 const SECRET = process.env.VFV_AUTH_SECRET ?? "vfv-dev-secret-change-me";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout", "/api/auth/me"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout", "/api/auth/me", "/r"];
 
 function enc(s: string) {
   return new TextEncoder().encode(s);
@@ -38,7 +38,7 @@ async function validSig(token: string | undefined) {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (PUBLIC_PATHS.some((p) => pathname === p)) return NextResponse.next();
+  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) return NextResponse.next();
 
   if (await validSig(req.cookies.get(AUTH_COOKIE)?.value)) return NextResponse.next();
 
