@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import db from "@/lib/db";
 import { ok, bad } from "@/lib/api";
 import { runStageAutomations, runWorkflows } from "@/lib/automation";
+import { normPhone } from "@/lib/phone";
 
 // GET /api/customers?page&limit&q&status&source&staff&tab(active|archived-less: prospect|active)
 export async function GET(req: NextRequest) {
@@ -43,6 +44,20 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => null);
   if (!b?.name || !b?.phone) return bad("name and phone required");
+
+  // duplicate guard — same last-10-digits phone means same person
+  const norm = normPhone(b.phone);
+  if (norm.length === 10) {
+    const all = db.prepare("SELECT id, name, phone FROM customers WHERE status != 'archived'").all() as Array<{ id: string; name: string; phone: string }>;
+    const dupe = all.find((c) => normPhone(c.phone) === norm);
+    if (dupe) {
+      return Response.json(
+        { statusCode: 409, message: "Duplicate: phone already on file", data: { existing: dupe } },
+        { status: 409 }
+      );
+    }
+  }
+
   const now = new Date().toISOString();
   const id = `cus_${Date.now().toString(36)}`;
   db.prepare(

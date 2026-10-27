@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BellPlus, Pencil, Archive, StickyNote } from "lucide-react";
+import { ArrowLeft, BellPlus, Pencil, Archive, StickyNote, Copy } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 
 type Detail = {
   customer: any; notes: any[]; activities: any[]; followups: any[]; lead: any;
+  dupes?: Array<{ id: string; name: string; phone: string; customerNumber: string }>;
 };
 
 const TABS = ["Overview", "Activity", "Follow-ups", "Analytics", "Notes"] as const;
@@ -50,11 +51,39 @@ export default function CustomerDetail({ id }: { id: string }) {
     load();
   }
 
+  async function mergeDupe(dupeId: string) {
+    if (!window.confirm("Merge the duplicate into this record? Its leads, follow-ups, notes and chats move here, then the duplicate is deleted.")) return;
+    const json = await fetch("/api/customers/merge", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ primaryId: id, dupeId }),
+    }).then((r) => r.json());
+    setToast(json?.data ? "Duplicate merged into this record" : "Merge failed");
+    load();
+  }
+
   return (
     <div className="space-y-6 p-6 lg:p-8">
       <Link href="/crm/customers" className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-900">
         <ArrowLeft className="size-4" /> Back to list
       </Link>
+
+      {(data.dupes?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm">
+          <Copy className="size-4 shrink-0 text-amber-600" />
+          <span className="text-amber-800">
+            <strong>Possible duplicate{data.dupes!.length > 1 ? "s" : ""}:</strong>{" "}
+            {data.dupes!.map((d) => (
+              <span key={d.id} className="mr-3 inline-flex items-center gap-1.5">
+                <Link href={`/crm/customers/${d.id}`} className="font-semibold underline">{d.name}</Link>
+                <button onClick={() => mergeDupe(d.id)}
+                  className="rounded-lg bg-amber-600 px-2 py-0.5 text-xs font-bold text-white hover:bg-amber-700">
+                  Merge here
+                </button>
+              </span>
+            ))}
+          </span>
+        </div>
+      )}
 
       <Card className="p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">

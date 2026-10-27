@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import db from "@/lib/db";
 import { ok, bad } from "@/lib/api";
+import { normPhone } from "@/lib/phone";
 
 // GET /api/customers/:id — detail incl notes, activities, followups, lead
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -14,7 +15,13 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const activities = db.prepare("SELECT * FROM activities WHERE customerId = ? ORDER BY createdAt DESC").all(id);
   const followups = db.prepare("SELECT * FROM followups WHERE customerId = ? ORDER BY dueAt ASC").all(id);
   const lead = db.prepare("SELECT * FROM leads WHERE customerId = ? ORDER BY updatedAt DESC LIMIT 1").get(id);
-  return ok({ customer, notes, activities, followups, lead });
+  // duplicate detection — same normalized phone elsewhere in the book
+  const norm = normPhone((customer as { phone: string }).phone);
+  const dupes = norm.length === 10
+    ? (db.prepare("SELECT id, name, phone, customerNumber FROM customers WHERE id != ? AND status != 'archived'").all(id) as Array<{ id: string; name: string; phone: string; customerNumber: string }>)
+        .filter((c) => normPhone(c.phone) === norm)
+    : [];
+  return ok({ customer, notes, activities, followups, lead, dupes });
 }
 
 // PATCH — edit / archive

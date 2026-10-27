@@ -249,13 +249,16 @@ export default function CustomersPage() {
 function NewCustomerModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "", businessName: "" });
   const [busy, setBusy] = useState(false);
+  const [dupeWarn, setDupeWarn] = useState<{ id: string; name: string; phone: string } | null>(null);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
 
   async function submit() {
     if (!form.name || !form.phone) return;
     setBusy(true);
-    await fetch("/api/customers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const res = await fetch("/api/customers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const json = await res.json().catch(() => null);
     setBusy(false);
+    if (res.status === 409 && json?.data?.existing) { setDupeWarn(json.data.existing); return; }
     onCreated();
     onClose();
   }
@@ -263,6 +266,13 @@ function NewCustomerModal({ onClose, onCreated }: { onClose: () => void; onCreat
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        {dupeWarn && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <span>Phone already on file: <strong>{dupeWarn.name}</strong> ({dupeWarn.phone}).</span>
+            <Link href={`/crm/customers/${dupeWarn.id}`} onClick={onClose} className="font-bold underline">Open that record</Link>
+            <span className="text-amber-600">— or change the phone to save a new one.</span>
+          </div>
+        )}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Add New Customer</h2>
           <button onClick={onClose} className="text-xl leading-none text-gray-400 hover:text-gray-700">×</button>
