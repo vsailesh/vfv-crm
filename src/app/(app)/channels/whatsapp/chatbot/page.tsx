@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Search, Trash2, X, Pencil, Star } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Plus, Search, Trash2, X, Pencil, Star, Table2 } from "lucide-react";
 import { Card, PrimaryButton } from "@/components/ui";
 
 type Bot = {
@@ -10,13 +11,17 @@ type Bot = {
   sessions: number; completed: number; dropoffs: number;
   createdAt: string;
 };
+type Session = { id: string; phone: string; status: string; startedAt: string };
+type Response_ = { id: string; phone: string; nodeLabel: string; answer: string; createdAt: string };
 
 export default function WaChatbotPage() {
+  const router = useRouter();
   const [bots, setBots] = useState<Bot[]>([]);
   const [q, setQ] = useState("");
-  const [create, setCreate] = useState(false);
-  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState<Bot | null>(null);
+  const [sessions, setSessions] = useState<{ bot: Bot; rows: Session[] } | null>(null);
+  const [responses, setResponses] = useState<{ bot: Bot; rows: Response_[] } | null>(null);
 
   const load = useCallback(async () => {
     const json = await fetch("/api/wa/bots").then((r) => r.json());
@@ -41,15 +46,13 @@ export default function WaChatbotPage() {
     load();
   }
 
+  // Create Chatbot drops straight into the builder with an untitled flow.
   async function createBot() {
-    if (!name.trim()) return;
-    await fetch("/api/wa/bots", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    setName("");
-    setCreate(false);
-    load();
+    if (busy) return;
+    setBusy(true);
+    const j = await fetch("/api/wa/bots", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then((r) => r.json());
+    setBusy(false);
+    if (j.data?.id) router.push(`/channels/whatsapp/chatbot/${j.data.id}`);
   }
 
   async function remove() {
@@ -57,6 +60,16 @@ export default function WaChatbotPage() {
     await fetch(`/api/wa/bots/${confirmDel.id}`, { method: "DELETE" });
     setConfirmDel(null);
     load();
+  }
+
+  async function openSessions(bot: Bot) {
+    const j = await fetch(`/api/wa/bots/${bot.id}/sessions`).then((r) => r.json());
+    setSessions({ bot, rows: j.data?.data ?? [] });
+  }
+
+  async function openResponses(bot: Bot) {
+    const j = await fetch(`/api/wa/bots/${bot.id}/responses`).then((r) => r.json());
+    setResponses({ bot, rows: j.data?.data ?? [] });
   }
 
   const totalSessions = bots.reduce((a, b) => a + b.sessions, 0);
@@ -73,7 +86,7 @@ export default function WaChatbotPage() {
           <h1 className="text-2xl font-bold tracking-tight">Chatbot</h1>
           <p className="mt-1 text-sm text-gray-500">Monitor engagement and performance across all WhatsApp flows</p>
         </div>
-        <PrimaryButton onClick={() => setCreate(true)}><Plus className="size-4" /> Create Chatbot</PrimaryButton>
+        <PrimaryButton onClick={() => { void createBot(); }}><Plus className="size-4" /> {busy ? "Creating…" : "Create Chatbot"}</PrimaryButton>
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -129,14 +142,15 @@ export default function WaChatbotPage() {
               </div>
 
               <div className="mt-5 flex flex-wrap gap-2">
-                <button className="flex h-9 items-center gap-1.5 rounded-xl border border-gray-200 px-4 text-xs font-semibold hover:bg-gray-50">
+                <button onClick={() => router.push(`/channels/whatsapp/chatbot/${b.id}`)}
+                  className="flex h-9 items-center gap-1.5 rounded-xl border border-gray-200 px-4 text-xs font-semibold hover:bg-gray-50">
                   <Pencil className="size-3" /> Edit flow
                 </button>
-                <button className="flex h-9 items-center gap-1.5 rounded-xl border border-gray-200 px-4 text-xs font-semibold hover:bg-gray-50">
+                <button onClick={() => openSessions(b)} className="flex h-9 items-center gap-1.5 rounded-xl border border-gray-200 px-4 text-xs font-semibold hover:bg-gray-50">
                   Sessions
                 </button>
-                <button className="flex h-9 items-center gap-1.5 rounded-xl border border-gray-200 px-4 text-xs font-semibold hover:bg-gray-50">
-                  Responses
+                <button onClick={() => openResponses(b)} className="flex h-9 items-center gap-1.5 rounded-xl border border-gray-200 px-4 text-xs font-semibold hover:bg-gray-50">
+                  <Table2 className="size-3" /> Responses
                 </button>
                 {!b.isDefault && (
                   <button onClick={() => makeDefault(b)} className="flex h-9 items-center gap-1.5 rounded-xl border border-gray-200 px-4 text-xs font-semibold hover:bg-gray-50">
@@ -153,27 +167,6 @@ export default function WaChatbotPage() {
         })}
       </div>
 
-      {create && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setCreate(false)}>
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold">Create Chatbot</h2>
-              <button onClick={() => setCreate(false)} aria-label="Close" className="grid size-8 place-items-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200">
-                <X className="size-4" />
-              </button>
-            </div>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. booking_flow" autoFocus
-              className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-lime" />
-            <p className="mt-2 text-[11px] text-gray-400">Starts inactive — build the flow, then switch it on.</p>
-            <div className="mt-5 flex gap-3">
-              <button onClick={() => setCreate(false)} className="h-10 flex-1 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50">Cancel</button>
-              <button onClick={createBot} disabled={!name.trim()}
-                className="h-10 flex-1 rounded-xl bg-lime text-sm font-semibold text-forest-950 hover:bg-lime-hover disabled:opacity-50">Create</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {confirmDel && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setConfirmDel(null)}>
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -183,6 +176,71 @@ export default function WaChatbotPage() {
               <button onClick={() => setConfirmDel(null)} className="h-10 flex-1 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50">Cancel</button>
               <button onClick={remove} className="h-10 flex-1 rounded-xl bg-red-600 text-sm font-semibold text-white hover:bg-red-700">Delete</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {sessions && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setSessions(null)}>
+          <div className="flex max-h-[70vh] w-full max-w-md flex-col rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <h2 className="text-base font-bold">{sessions.bot.name} — Session Analytics</h2>
+              <button onClick={() => setSessions(null)} aria-label="Close" className="grid size-8 place-items-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200">
+                <X className="size-4" />
+              </button>
+            </div>
+            {sessions.rows.length === 0 ? (
+              <p className="px-5 py-10 text-center text-sm text-gray-400">No sessions captured yet. Activate the bot and let it greet someone.</p>
+            ) : (
+              <div className="divide-y divide-gray-100 overflow-y-auto">
+                {sessions.rows.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between px-5 py-3">
+                    <span className="font-mono text-sm font-semibold">+{s.phone}</span>
+                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase ${s.status === "completed" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
+                      {s.status}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {new Date(s.startedAt).toLocaleString("en-IN", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {responses && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setResponses(null)}>
+          <div className="flex max-h-[70vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <h2 className="text-base font-bold">{responses.bot.name} — Responses</h2>
+              <button onClick={() => setResponses(null)} aria-label="Close" className="grid size-8 place-items-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200">
+                <X className="size-4" />
+              </button>
+            </div>
+            {responses.rows.length === 0 ? (
+              <div className="grid place-items-center gap-2 px-5 py-12 text-center">
+                <Table2 className="size-8 text-gray-300" />
+                <p className="text-sm font-semibold text-gray-500">No responses captured yet</p>
+                <p className="text-xs text-gray-400">Add a Store Response In field to a node and collect a reply.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100 overflow-y-auto">
+                {responses.rows.map((r) => (
+                  <div key={r.id} className="px-5 py-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-semibold">+{r.phone}</span>
+                      <span className="text-xs text-gray-400">
+                        {new Date(r.createdAt).toLocaleString("en-IN", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs font-semibold text-gray-600">{r.nodeLabel}</p>
+                    <p className="mt-0.5 rounded-lg bg-gray-50 px-3 py-1.5 text-sm">{r.answer}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

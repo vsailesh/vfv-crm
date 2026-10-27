@@ -149,6 +149,25 @@ CREATE TABLE IF NOT EXISTS wa_bots (
   sessions INTEGER NOT NULL DEFAULT 0,
   completed INTEGER NOT NULL DEFAULT 0,
   dropoffs INTEGER NOT NULL DEFAULT 0,
+  nodes TEXT NOT NULL DEFAULT '[]',   -- flow nodes (React Flow JSON)
+  edges TEXT NOT NULL DEFAULT '[]',   -- flow edges (React Flow JSON)
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wa_bot_sessions (
+  id TEXT PRIMARY KEY,
+  botId TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'completed', -- completed | dropped
+  startedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wa_bot_responses (
+  id TEXT PRIMARY KEY,
+  botId TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  nodeLabel TEXT NOT NULL,   -- question / node that captured the reply
+  answer TEXT NOT NULL,
   createdAt TEXT NOT NULL
 );
 
@@ -363,10 +382,45 @@ function seedInner() {
   tplSeed.forEach(([metaId, name, cat, st, body], i) =>
     insTpl.run(`wtpl_${i}`, metaId, name, cat, st, body, iso((26 - i) * day)));
 
-  // WhatsApp chatbots
-  db.prepare("INSERT INTO wa_bots (id, name, version, isActive, isDefault, sessions, completed, dropoffs, createdAt) VALUES (?,?,?,?,?,?,?,?,?)").run(
-    "bot_0", "welcome", 3, 0, 1, 119, 117, 2, iso(15 * day)
+  // WhatsApp chatbots — welcome (default greeting) + Navasankalpa FAQ (active)
+  const welcomeNodes = JSON.stringify([
+    { id: "trigger_0", type: "trigger", position: { x: 80, y: 180 }, data: { keywords: ["hi"] } },
+    { id: "msg_0", type: "sendMsg", position: { x: 440, y: 160 }, data: { mode: "text", body: "Namaste! Welcome to Veda For Vaidyas. How can we help you today?", saveAs: "" } },
+  ]);
+  const welcomeEdges = JSON.stringify([{ id: "e0", source: "trigger_0", target: "msg_0" }]);
+  db.prepare("INSERT INTO wa_bots (id, name, version, isActive, isDefault, sessions, completed, dropoffs, nodes, edges, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
+    "bot_0", "welcome", 3, 0, 1, 119, 117, 2, welcomeNodes, welcomeEdges, iso(15 * day)
   );
+
+  const faqNodes = JSON.stringify([
+    { id: "trigger_0", type: "trigger", position: { x: 60, y: 200 }, data: { keywords: ["faq", "help"] } },
+    { id: "msg_0", type: "sendMsg", position: { x: 420, y: 120 }, data: { mode: "text", body: "Navasankalpa FAQ bot here. Ask about batches, fees, or the AIAPGET 2027 prep plan.", saveAs: "" } },
+    { id: "ask_0", type: "askQ", position: { x: 420, y: 340 }, data: { question: "What would you like to know?", saveAs: "topic" } },
+  ]);
+  const faqEdges = JSON.stringify([
+    { id: "e0", source: "trigger_0", target: "msg_0" },
+    { id: "e1", source: "trigger_0", target: "ask_0" },
+  ]);
+  db.prepare("INSERT INTO wa_bots (id, name, version, isActive, isDefault, sessions, completed, dropoffs, nodes, edges, createdAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
+    "bot_1", "Navasankalpa FAQ", 1, 1, 0, 3, 1, 2, faqNodes, faqEdges, iso(9 * day)
+  );
+
+  // Bot sessions — welcome: recent completed runs; FAQ: 1 completed + 2 dropped
+  const insSess = db.prepare("INSERT INTO wa_bot_sessions (id, botId, phone, status, startedAt) VALUES (?,?,?,?,?)");
+  const welcomePhones: Array<[string, number]> = [
+    ["918614540120", 13], ["918080372153", 13], ["915360868224", 13], ["919845127760", 13],
+    ["917022684193", 12], ["916362155047", 12], ["914713209885", 11], ["919964559178", 10],
+  ];
+  welcomePhones.forEach(([p, d], i) => insSess.run(`wsess_${i}`, "bot_0", p, "completed", iso(d * day)));
+  insSess.run("fsess_0", "bot_1", "919741236850", "completed", iso(4 * day));
+  insSess.run("fsess_1", "bot_1", "918822417960", "dropped", iso(3 * day));
+  insSess.run("fsess_2", "bot_1", "916305488221", "dropped", iso(2 * day));
+
+  // Captured answers (from the FAQ ask-a-question node)
+  const insResp = db.prepare("INSERT INTO wa_bot_responses (id, botId, phone, nodeLabel, answer, createdAt) VALUES (?,?,?,?,?,?)");
+  insResp.run("wresp_0", "bot_0", "919964559178", "How can we help you today?", "book a panchakarma consult", iso(10 * day));
+  insResp.run("fresp_0", "bot_1", "919741236850", "What would you like to know?", "fees for AIAPGET batch", iso(4 * day));
+  insResp.run("fresp_1", "bot_1", "916305488221", "What would you like to know?", "hostel facility?", iso(2 * day));
 
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('aiTokens', '100000')").run();
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('whatsappPhone', '919964559178')").run();

@@ -8,13 +8,16 @@ export async function GET() {
   return ok({ data: rows });
 }
 
-// POST /api/wa/bots — create a chatbot shell (flow edited in builder)
+// POST /api/wa/bots — create a chatbot shell with a starter trigger node.
+// Name optional: absent/blank creates "Untitled flow" (renamed in the builder).
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
-  const { name } = b ?? {};
-  if (!name || typeof name !== "string" || !name.trim()) return bad("bot name is required");
+  const name = typeof b?.name === "string" && b.name.trim() ? b.name.trim() : "Untitled flow";
   const id = `bot_${Date.now().toString(36)}`;
-  db.prepare("INSERT INTO wa_bots (id, name, version, isActive, isDefault, sessions, completed, dropoffs, createdAt) VALUES (?,?,1,0,0,0,0,0,?)").run(
-    id, name.trim(), new Date().toISOString());
+  const nodes = JSON.stringify([
+    { id: "trigger_0", type: "trigger", position: { x: 120, y: 200 }, data: { keywords: [] } },
+  ]);
+  db.prepare("INSERT INTO wa_bots (id, name, version, isActive, isDefault, sessions, completed, dropoffs, nodes, edges, createdAt) VALUES (?,?,1,0,0,0,0,0,?,'[]',?)").run(
+    id, name, nodes, new Date().toISOString());
   return ok(db.prepare("SELECT * FROM wa_bots WHERE id = ?").get(id));
 }
