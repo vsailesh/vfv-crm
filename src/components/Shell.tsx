@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   LayoutDashboard, Inbox, Users,
-  UserRound, MessageCircle, MapPin, QrCode, ChevronDown, Coins, Bell, RefreshCw, PanelLeft, LogOut,
+  MessageCircle, MapPin, QrCode, ChevronDown, Coins, Bell, RefreshCw, PanelLeft, LogOut,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,9 +26,9 @@ const NAV: Array<{ label: string; items: NavItem[] }> = [
           { href: "/crm/follow-ups", label: "Follow-ups" },
           { href: "/crm/segments", label: "Segments" },
           { href: "/crm/analytics", label: "Analytics" },
+          { href: "/staffs", label: "Staff" },
         ],
       },
-      { href: "/staffs", label: "Staff", icon: UserRound },
     ],
   },
   {

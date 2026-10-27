@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS staff (
   isAvailable INTEGER NOT NULL DEFAULT 1,
   currentActiveLeads INTEGER NOT NULL DEFAULT 0,
   maxActiveLeads INTEGER NOT NULL DEFAULT 0,
+  permissions TEXT NOT NULL DEFAULT '[]',   -- page keys this member can open
   lastSeenAt TEXT,
   createdAt TEXT NOT NULL
 );
@@ -140,6 +141,25 @@ CREATE TABLE IF NOT EXISTS wa_templates (
   createdAt TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS gmb_reviews (
+  id TEXT PRIMARY KEY,
+  authorName TEXT NOT NULL,
+  rating INTEGER NOT NULL,          -- 1..5
+  body TEXT,
+  replied INTEGER NOT NULL DEFAULT 0,
+  reply TEXT,
+  reviewedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gmb_questions (
+  id TEXT PRIMARY KEY,
+  authorName TEXT NOT NULL,
+  question TEXT NOT NULL,
+  answer TEXT,
+  answeredBy TEXT,
+  askedAt TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS wa_bots (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -215,10 +235,16 @@ function seedInner() {
     { id: "stf3", code: "STF-A9X1Q", name: "Sailesh", email: "saileshv3756@gmail.com", phone: "+919494491166", role: "admin", dept: null, desc: null },
   ];
   const hash = (email: string) => crypto.createHash("sha256").update(`${email.toLowerCase()}:veda123`).digest("hex");
+  const ALL_PAGES = ["inbox", "crm:customers", "crm:pipeline", "crm:segments", "wa:templates", "wa:campaigns", "wa:chatbot", "gmb", "qr"];
   const insStaff = db.prepare(
-    "INSERT INTO staff (id, staffCode, name, email, phone, role, department, designation, passwordHash, isActive, isAvailable, currentActiveLeads, lastSeenAt, createdAt) VALUES (?,?,?,?,?,?,?,?,?,1,1,0,?,?)"
+    "INSERT INTO staff (id, staffCode, name, email, phone, role, department, designation, passwordHash, isActive, isAvailable, currentActiveLeads, maxActiveLeads, permissions, lastSeenAt, createdAt) VALUES (?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?)"
   );
-  for (const s of staffSeed) insStaff.run(s.id, s.code, s.name, s.email, s.phone, s.role, s.dept, s.desc, hash(s.email), iso(3 * day), iso(28 * day));
+  const waLoad: Record<string, [number, number]> = { stf1: [2, 5], stf2: [1, 0], stf3: [0, 0] };
+  for (const s of staffSeed) {
+    const perms = s.role === "admin" ? [...ALL_PAGES, "crm:followups", "crm:analytics", "staff"] : ALL_PAGES;
+    const [used, max] = waLoad[s.id] ?? [0, 0];
+    insStaff.run(s.id, s.code, s.name, s.email, s.phone, s.role, s.dept, s.desc, hash(s.email), used, max, JSON.stringify(perms), iso(3 * day), iso(28 * day));
+  }
 
   // Real VFV sample contacts (from capture) + synthetic fill
   const realNames: Array<[string, string, string | null]> = [
@@ -267,7 +293,7 @@ function seedInner() {
 
   let ci = 0;
   const stagePlan: Array<[number, string]> = [
-    [46, "new"], [4, "contacted"], [3, "engaged"], [2, "qualified"], [1, "negotiation"], [1, "converted"],
+    [42, "new"], [4, "contacted"], [3, "engaged"], [2, "qualified"], [1, "negotiation"], [4, "converted"],
   ];
   const customersWithLeads: Array<{ id: string; stage: string; src: string; staff: string; createdAgo: number; name: string; phone: string; unseen: number }> = [];
 
@@ -344,29 +370,67 @@ function seedInner() {
     "cmp_0", "seg_0", "Panchakarma intro", "Namaste {{name}}, our panchakarma consultation slots are open this week. Reply to book.", "sent", 4, iso(20 * day), iso(21 * day)
   );
 
-  // follow-ups sample
+  // follow-ups sample (spread across staff so profiles + queues look alive)
   const insF = db.prepare("INSERT INTO followups (id, customerId, title, dueAt, status, createdAt) VALUES (?,?,?,?,?,?)");
   insF.run("fu_0", customersWithLeads[1].id, "Intro call follow-up", new Date(now + 2 * day).toISOString(), "pending", iso(2 * day));
   insF.run("fu_1", customersWithLeads[2].id, "Share pricing sheet", new Date(now - day).toISOString(), "pending", iso(3 * day));
   insF.run("fu_2", customersWithLeads[3].id, "Consultation booking", new Date(now - 4 * day).toISOString(), "missed", iso(6 * day));
   insF.run("fu_3", customersWithLeads[4].id, "WhatsApp nurture", new Date(now + 5 * day).toISOString(), "completed", iso(8 * day));
+  insF.run("fu_4", customersWithLeads[0].id, "Send panchakarma brochure", new Date(now + day).toISOString(), "pending", iso(1 * day));
+  insF.run("fu_5", customersWithLeads[6].id, "Confirm consultation slot", new Date(now - 2 * day).toISOString(), "pending", iso(4 * day));
+  insF.run("fu_6", customersWithLeads[7].id, "Course fee reminder", new Date(now + 3 * day).toISOString(), "pending", iso(1 * day));
 
-  // notes + activities for first few customers
+  // notes + activities — enough volume that staff profiles + customer timelines feel real
   const insN = db.prepare("INSERT INTO notes (id, customerId, body, createdAt) VALUES (?,?,?,?)");
   const insA = db.prepare("INSERT INTO activities (id, customerId, kind, text, createdAt) VALUES (?,?,?,?,?)");
   insN.run("note_0", customersWithLeads[0].id, "Asked about panchakarma package pricing.", iso(day));
   insA.run("act_0", customersWithLeads[0].id, "stage", "Lead created from website form", iso(2 * day));
   insA.run("act_1", customersWithLeads[1].id, "assign", "Assigned to Naveen (round robin)", iso(2 * day));
+  const seedActs: Array<[number, string, string, number]> = [
+    [0, "note", "Naveen added a note: budget confirmed, wants weekday slots", 5],
+    [0, "stage", "Naveen moved lead from new to contacted", 4],
+    [0, "followup", "Naveen scheduled a follow-up: Send panchakarma brochure", 1],
+    [3, "stage", "Naveen moved lead from contacted to engaged", 6],
+    [3, "note", "Naveen added a note: prefers WhatsApp over calls", 5],
+    [6, "assign", "Assigned to Naveen (round robin)", 8],
+    [6, "stage", "Naveen moved lead from new to qualified", 4],
+    [1, "note", "Sreya added a note: requested course catalog", 3],
+    [1, "followup", "Sreya scheduled a follow-up: Intro call follow-up", 2],
+    [4, "stage", "Sreya moved lead from qualified to negotiation", 5],
+    [7, "note", "Sreya added a note: asked for student discount", 2],
+    [2, "stage", "Sailesh moved lead from negotiation to converted", 3],
+    [2, "note", "Sailesh added a note: closed, onboarded to basic plan", 3],
+    [5, "assign", "Assigned to Sreya (round robin)", 7],
+    [9, "stage", "Naveen moved lead from new to contacted", 2],
+  ];
+  seedActs.forEach(([custIdx, kind, text, ago], i) =>
+    insA.run(`act_s${i}`, customersWithLeads[custIdx].id, kind, text, iso(ago * day)));
 
   // QR codes sample
   const insQr = db.prepare(
     `INSERT INTO qr_codes (id, code, name, redirectType, destinationUrl, prefillMessage, campaignTag, status, scans, newScans, existingScans, lastScanAt, createdAt)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
-  insQr.run("qr_0", "z9x1rjr5", "Test", "custom_url", "https://buzbiz.ai", null, "test", "live", 4, 0, 3, iso(25 * day), iso(28 * day));
+  insQr.run("qr_0", "z9x1rjr5", "Test", "custom_url", "https://buzbiz.ai", null, "test", "live", 4, 1, 3, iso(25 * day), iso(28 * day));
   insQr.run("qr_1", "dwlfl7k2", "Diwali Flyer", "whatsapp",
     "https://wa.me/919964559178?text=Hi%2C%20I%20scanned%20your%20Diwali%20flyer%20QR%20and%20want%20to%20book%21",
     "Hi, I scanned your Diwali flyer QR and want to book!", "diwali-2026", "paused", 0, 0, 0, null, iso(6 * day));
+
+  // Google My Business — reviews + Q&A (listing synced from GBP)
+  const insRev = db.prepare(
+    "INSERT INTO gmb_reviews (id, authorName, rating, body, replied, reply, reviewedAt) VALUES (?,?,?,?,?,?,?)"
+  );
+  insRev.run("grv_0", "Anitha Raman", 5, "Consultation was thorough and the doctor explained the panchakarma plan clearly. Booking via WhatsApp was effortless.", 1, "Thank you, Anitha! Glad the plan is working for you.", iso(2 * day));
+  insRev.run("grv_1", "Vikram Shetty", 4, "Good ayurvedic products, delivery took a day longer than promised.", 0, null, iso(4 * day));
+  insRev.run("grv_2", "Meera Krishnan", 5, "Best vaidya clinic in the area. Follow-up reminders on WhatsApp are very helpful.", 0, null, iso(7 * day));
+  insRev.run("grv_3", "Rahul Deshpande", 3, "Decent experience, waiting time was long on Saturday.", 0, null, iso(12 * day));
+  insRev.run("grv_4", "Sneha Pai", 1, "Could not reach them on phone, had to visit in person.", 0, null, iso(18 * day));
+  const insQ = db.prepare(
+    "INSERT INTO gmb_questions (id, authorName, question, answer, answeredBy, askedAt) VALUES (?,?,?,?,?,?)"
+  );
+  insQ.run("gq_0", "Deepak Nair", "Do you offer online consultations for patients outside Bengaluru?",
+    "Yes! We run video consultations daily 10am–1pm. Book via WhatsApp and we share the meet link.", "Veda For Vaidyas", iso(3 * day));
+  insQ.run("gq_1", "Kavya Reddy", "Is panchakarma covered by insurance?", null, null, iso(1 * day));
 
   // WhatsApp templates (mirrors the real Meta-approved list)
   const tplSeed: Array<[string, string, string, string, string]> = [
