@@ -1,0 +1,286 @@
+import Database from "better-sqlite3";
+import path from "path";
+import fs from "fs";
+
+const DB_PATH = path.join(process.cwd(), "data", "vfv.db");
+fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+
+// One connection per process — route modules are bundled separately at build
+// time and would otherwise race on the DDL exec below (SQLITE_BUSY).
+const g = globalThis as any;
+const db: Database.Database = g.__vfvDb ?? (g.__vfvDb = new Database(DB_PATH));
+db.pragma("busy_timeout = 5000");
+db.pragma("journal_mode = WAL");
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS staff (
+  id TEXT PRIMARY KEY,
+  staffCode TEXT NOT NULL,
+  name TEXT NOT NULL,
+  email TEXT,
+  phone TEXT,
+  role TEXT NOT NULL DEFAULT 'staff',
+  department TEXT,
+  designation TEXT,
+  isActive INTEGER NOT NULL DEFAULT 1,
+  isAvailable INTEGER NOT NULL DEFAULT 1,
+  currentActiveLeads INTEGER NOT NULL DEFAULT 0,
+  maxActiveLeads INTEGER NOT NULL DEFAULT 0,
+  lastSeenAt TEXT,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+  id TEXT PRIMARY KEY,
+  customerNumber TEXT NOT NULL,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT,
+  address TEXT,
+  city TEXT,
+  state TEXT,
+  pincode TEXT,
+  businessName TEXT,
+  status TEXT NOT NULL DEFAULT 'prospect', -- prospect | active
+  source TEXT NOT NULL DEFAULT 'website',  -- website | whatsapp | manual | qr
+  tags TEXT NOT NULL DEFAULT '[]',         -- JSON array
+  assignedStaffId TEXT REFERENCES staff(id),
+  leadStage TEXT,                          -- current pipeline stage if lead exists
+  unseen INTEGER NOT NULL DEFAULT 0,
+  engagement INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS leads (
+  id TEXT PRIMARY KEY,
+  customerId TEXT NOT NULL REFERENCES customers(id),
+  status TEXT NOT NULL DEFAULT 'new',      -- new|contacted|engaged|qualified|negotiation|converted|on_hold|unresponsive|lost|junk
+  source TEXT NOT NULL DEFAULT 'website',
+  assignedStaffId TEXT REFERENCES staff(id),
+  noteCount INTEGER NOT NULL DEFAULT 0,
+  activityCount INTEGER NOT NULL DEFAULT 0,
+  statusHistory TEXT NOT NULL DEFAULT '[]',-- JSON [{status,at}]
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS segments (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'static',     -- static | dynamic
+  description TEXT,
+  customerIds TEXT NOT NULL DEFAULT '[]',  -- JSON array
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS followups (
+  id TEXT PRIMARY KEY,
+  customerId TEXT NOT NULL REFERENCES customers(id),
+  title TEXT NOT NULL,
+  dueAt TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',  -- pending|completed|missed|cancelled
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  customerId TEXT NOT NULL REFERENCES customers(id),
+  body TEXT NOT NULL,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS activities (
+  id TEXT PRIMARY KEY,
+  customerId TEXT NOT NULL REFERENCES customers(id),
+  kind TEXT NOT NULL,                      -- note|stage|assign|call|message
+  text TEXT NOT NULL,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  customerId TEXT NOT NULL REFERENCES customers(id),
+  channel TEXT NOT NULL DEFAULT 'whatsapp',
+  lastMessageAt TEXT NOT NULL,
+  lastSnippet TEXT,
+  unseen INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  conversationId TEXT NOT NULL REFERENCES conversations(id),
+  fromCustomer INTEGER NOT NULL DEFAULT 1,
+  body TEXT NOT NULL,
+  sentAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`);
+
+export { STAGES } from "./stages";
+export type { StageKey } from "./stages";
+import { STAGES } from "./stages";
+
+function seedInner() {
+  const count = (db.prepare("SELECT COUNT(*) AS n FROM customers").get() as { n: number }).n;
+  if (count > 0) return;
+
+  const now = Date.now();
+  const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const day = 86400000;
+
+  const staffSeed = [
+    { id: "stf1", code: "STF-LT9B7", name: "Naveen", email: "gvvnaveen@gmail.com", phone: "+917013541035", role: "staff", dept: "Marketing", desc: "Marketing Associate" },
+    { id: "stf2", code: "STF-K4M2P", name: "Sreya", email: "sreyav84@gmail.com", phone: "+916303684177", role: "staff", dept: "Marketing", desc: "Marketing Associate" },
+    { id: "stf3", code: "STF-A9X1Q", name: "Sailesh", email: "saileshv3756@gmail.com", phone: "+919494491166", role: "admin", dept: null, desc: null },
+  ];
+  const insStaff = db.prepare(
+    "INSERT INTO staff (id, staffCode, name, email, phone, role, department, designation, isActive, isAvailable, currentActiveLeads, lastSeenAt, createdAt) VALUES (?,?,?,?,?,?,?,?,1,1,0,?,?)"
+  );
+  for (const s of staffSeed) insStaff.run(s.id, s.code, s.name, s.email, s.phone, s.role, s.dept, s.desc, iso(3 * day), iso(28 * day));
+
+  // Real VFV sample contacts (from capture) + synthetic fill
+  const realNames: Array<[string, string, string | null]> = [
+    ["Safreen", "8123427632", "safreenbanu062@gmail.com"],
+    ["Dr Khushi Singhgi", "8310202852", null],
+    ["Ranjita G. M", "9110183742", null],
+    ["Dr Gogi Ayurverse", "9701093359", null],
+    ["Shathamanu", "8340237346", null],
+    ["Naveen G", "7013141035", null],
+    ["Dr. Kasturee", "9243132977", null],
+    ["Akhila Joshi", "9606264972", null],
+    ["Keerthi", "8120897615", null],
+    ["Pavankumar", "9446007443", null],
+    ["Vamsi", "7735680494", null],
+    ["Lajida", "7842931955", null],
+    ["Rubeena A N", "8810225812", null],
+    ["Anarghya D", "7819086439", null],
+    ["Rathod", "7992016662", null],
+    ["Eyansh ji", "8880144044", null],
+    ["Keerti", "9535491977", null],
+    ["ganesh Aher", "7617625499", null],
+    ["harinivk", "6360800141", null],
+    ["shreyan140", "9741534569", null],
+    ["VD", "6361884150", null],
+    ["Skanda G", "9787233346", null],
+    ["Phiba", "9059974867", null],
+    ["Sanjana", "9172167184", null],
+    ["Lubaba Siddiq", "8951218198", null],
+    ["Suhas Huggi", "9483794857", null],
+    ["Himanshu Jitendra Shahare", "8731958827", null],
+    ["Nikhil Rajendra Garkal", "9380933343", null],
+    ["Birari Srushti Deepak", "9324168334", null],
+    ["Vaishnavi Gajendra Shelke", "8788352723", null],
+  ];
+  const fillNames = ["Aarav Sharma", "Diya Patel", "Arjun Mehta", "Isha Rao", "Kabir Nair", "Ananya Iyer", "Vivaan Joshi", "Meera Kulkarni", "Advait Reddy", "Saanvi Gupta", "Reyansh Bose", "Aadhya Verma", "Arnav Shetty", "Pari Chauhan", "Dhruv Malik", "Nitya Menon", "Kian D'Souza", "Riya Sachdev", "Om Prakash", "Tara Bhatt", "Dev Pillai", "Anvi Trivedi", "Rudra Jain", "Sara Fernandes", "Yash Kapoor", "Mira Sengupta", "Aryan Deshmukh", "Kiara Bajwa", "Veer Rathore", "Naina Chopra"];
+  const cities: Array<[string, string, string]> = [["Bengaluru", "Karnataka", "560001"], ["Mumbai", "Maharashtra", "400001"], ["Hyderabad", "Telangana", "500001"], ["Chennai", "Tamil Nadu", "600001"], ["Pune", "Maharashtra", "411001"], ["Delhi", "Delhi", "110001"]];
+  const sources = ["website", "whatsapp", "manual", "qr"] as const;
+
+  const insCust = db.prepare(
+    `INSERT INTO customers (id, customerNumber, name, phone, email, address, city, state, pincode, businessName, status, source, tags, assignedStaffId, leadStage, unseen, engagement, createdAt, updatedAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const insLead = db.prepare(
+    `INSERT INTO leads (id, customerId, status, source, assignedStaffId, noteCount, activityCount, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?)`
+  );
+
+  let ci = 0;
+  const stagePlan: Array<[number, string]> = [
+    [46, "new"], [4, "contacted"], [3, "engaged"], [2, "qualified"], [1, "negotiation"], [1, "converted"],
+  ];
+  const customersWithLeads: Array<{ id: string; stage: string; src: string; staff: string; createdAgo: number; name: string; phone: string; unseen: number }> = [];
+
+  const mkCustomer = (name: string, phone: string, email: string | null, idx: number, createdAgo: number) => {
+    const id = `cus_${idx.toString(36)}_${idx * 7919}`;
+    const src = sources[idx % 4 === 0 ? 0 : idx % 7 === 0 ? 1 : idx % 5 === 0 ? 2 : 0];
+    const status = idx % 3 === 0 ? "active" : "prospect";
+    const city = cities[idx % cities.length];
+    const staff = staffSeed[idx % 3].id;
+    const tags = src === "website" ? JSON.stringify(["registered from the website"]) : "[]";
+    insCust.run(
+      id,
+      (src === "whatsapp" ? "CUST-WA-" : "BZ-C-") + (1700000000000 + idx * 137),
+      name, phone, email, idx % 4 === 0 ? `${12 + (idx % 80)} MG Road` : null,
+      idx % 4 === 0 ? city[0] : null, idx % 4 === 0 ? city[1] : null, idx % 4 === 0 ? city[2] : null,
+      idx % 6 === 0 ? "Veda Clinic" : null,
+      status, src, tags, staff, null, idx % 11 === 0 ? idx % 20 : 0, idx % 9,
+      iso(createdAgo), iso(Math.max(0, createdAgo - day * (idx % 5)))
+    );
+    return { id, staff, src, createdAgo, name, phone, unseen: idx % 11 === 0 ? idx % 20 : 0 };
+  };
+
+  // leads-first customers (real names first)
+  let leadIdx = 0;
+  for (const [n, stage] of stagePlan) {
+    for (let k = 0; k < n; k++) {
+      const nameIdx = leadIdx;
+      const real = realNames[nameIdx];
+      const fill = [fillNames[nameIdx % fillNames.length], `9${(8000000000 + nameIdx * 137717).toString().slice(0, 9)}`, null] as [string, string, null];
+      const [nm, ph, em] = real ?? fill;
+      const createdAgo = day * (1 + (leadIdx % 25));
+      const c = mkCustomer(nm || `Unknown ${nameIdx}`, ph, em, ci++, createdAgo);
+      const lid = `lead_${leadIdx.toString(36)}`;
+      insLead.run(lid, c.id, stage, c.src, c.staff, leadIdx % 4, leadIdx % 6,
+        JSON.stringify([{ status: "new", at: iso(createdAgo) }]), iso(createdAgo), iso(Math.max(0, createdAgo - day)));
+      db.prepare("UPDATE customers SET leadStage=? WHERE id=?").run(stage, c.id);
+      customersWithLeads.push({ ...c, stage });
+      leadIdx++;
+    }
+  }
+
+  // remaining customers, no lead (directory bulk)
+  let fi = 0;
+  while (ci < 120) {
+    const createdAgo = day * (2 + (fi % 60));
+    mkCustomer(fillNames[fi % fillNames.length], `9${(7000000000 + fi * 31337).toString().slice(0, 9)}`, null, ci++, createdAgo);
+    fi++;
+  }
+
+  // conversations for inbox (customers with whatsapp source + a few manual)
+  const insConv = db.prepare("INSERT INTO conversations (id, customerId, channel, lastMessageAt, lastSnippet, unseen) VALUES (?,?,?,?,?,?)");
+  const insMsg = db.prepare("INSERT INTO messages (id, conversationId, fromCustomer, body, sentAt) VALUES (?,?,?,?,?)");
+  const convRows = customersWithLeads.slice(0, 18).map((c, i) => {
+    const channel = i % 6 === 5 ? "manual" : "whatsapp";
+    const ago = day * (i % 20) + 3600000 * (i % 10);
+    const snippet = i % 2 === 0 ? "Namaste, interested in consultation" : "Please share the course details";
+    insConv.run(`conv_${i}`, c.id, channel, iso(ago), snippet, c.unseen);
+    insMsg.run(`msg_${i}_0`, `conv_${i}`, 1, snippet, iso(ago));
+    insMsg.run(`msg_${i}_1`, `conv_${i}`, 0, "Thank you! Our team will reach out shortly.", iso(ago - 60000));
+    return { ...c, channel, ago };
+  });
+
+  // segments
+  db.prepare("INSERT INTO segments (id, name, type, description, customerIds, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?)").run(
+    "seg_0", "test segment", "static", null,
+    JSON.stringify(customersWithLeads.slice(0, 4).map((c) => c.id)),
+    iso(25 * day), iso(25 * day)
+  );
+
+  // follow-ups sample
+  const insF = db.prepare("INSERT INTO followups (id, customerId, title, dueAt, status, createdAt) VALUES (?,?,?,?,?,?)");
+  insF.run("fu_0", customersWithLeads[1].id, "Intro call follow-up", new Date(now + 2 * day).toISOString(), "pending", iso(2 * day));
+  insF.run("fu_1", customersWithLeads[2].id, "Share pricing sheet", new Date(now - day).toISOString(), "pending", iso(3 * day));
+  insF.run("fu_2", customersWithLeads[3].id, "Consultation booking", new Date(now - 4 * day).toISOString(), "missed", iso(6 * day));
+  insF.run("fu_3", customersWithLeads[4].id, "WhatsApp nurture", new Date(now + 5 * day).toISOString(), "completed", iso(8 * day));
+
+  // notes + activities for first few customers
+  const insN = db.prepare("INSERT INTO notes (id, customerId, body, createdAt) VALUES (?,?,?,?)");
+  const insA = db.prepare("INSERT INTO activities (id, customerId, kind, text, createdAt) VALUES (?,?,?,?,?)");
+  insN.run("note_0", customersWithLeads[0].id, "Asked about panchakarma package pricing.", iso(day));
+  insA.run("act_0", customersWithLeads[0].id, "stage", "Lead created from website form", iso(2 * day));
+  insA.run("act_1", customersWithLeads[1].id, "assign", "Assigned to Naveen (round robin)", iso(2 * day));
+
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('aiTokens', '100000')").run();
+}
+
+// Immediate transaction takes the write lock up front, so concurrent build
+// workers serialize: the first seeds, the rest see the count check fail.
+const seed = db.transaction(seedInner).immediate;
+seed();
+
+export default db;
