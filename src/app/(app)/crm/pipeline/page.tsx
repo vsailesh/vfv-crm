@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   DndContext, DragEndEvent, PointerSensor, useSensor, useSensors, useDraggable, useDroppable,
 } from "@dnd-kit/core";
-import { Search, Plus, Inbox as InboxIcon, ChevronRight } from "lucide-react";
+import { Search, Plus, Inbox as InboxIcon, ChevronRight, Undo2, X } from "lucide-react";
 import { STAGES } from "@/lib/stages";
 import { Badge, Card, StatPill } from "@/components/ui";
 
@@ -29,6 +29,17 @@ export default function PipelinePage() {
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
+  const [undo, setUndo] = useState<{ leadId: string; from: string; to: string; name: string } | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!undo) return;
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => setUndo(null), 6000);
+    return () => {
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+    };
+  }, [undo]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,19 +67,31 @@ export default function PipelinePage() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  async function moveLead(leadId: string, to: string) {
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: to } : l)));
+    await fetch("/api/leads", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: leadId, status: to }),
+    });
+  }
+
   async function onDragEnd(e: DragEndEvent) {
     const leadId = String(e.active.id);
     const col = e.over?.id ? String(e.over.id) : null;
     if (!col) return;
     const lead = leads.find((l) => l.id === leadId);
     if (!lead || lead.status === col) return;
-    // optimistic
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: col } : l)));
-    await fetch("/api/leads", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: leadId, status: col }),
-    });
+    const from = lead.status;
+    await moveLead(leadId, col);
+    setUndo({ leadId, from, to: col, name: lead.fullName });
+  }
+
+  async function undoMove() {
+    if (!undo) return;
+    const { leadId, from } = undo;
+    setUndo(null);
+    await moveLead(leadId, from);
   }
 
   return (
@@ -138,6 +161,26 @@ export default function PipelinePage() {
           })}
         </div>
       </DndContext>
+
+      {undo && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+          <div className="flex items-center gap-4 rounded-2xl bg-forest-950 px-5 py-3 text-sm text-white shadow-xl">
+            <span>
+              Moved <strong>{undo.name}</strong> to{" "}
+              <strong>{STAGES.find((s) => s.key === undo.to)?.label ?? undo.to}</strong>
+            </span>
+            <button
+              onClick={undoMove}
+              className="flex h-8 items-center gap-1.5 rounded-lg bg-lime px-3 text-xs font-bold text-forest-950 hover:bg-lime-hover"
+            >
+              <Undo2 className="size-3.5" /> Undo
+            </button>
+            <button onClick={() => setUndo(null)} className="text-gray-400 hover:text-white">
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {showNew && <NewLeadModal onClose={() => setShowNew(false)} onCreated={load} />}
       {loading && <p className="sr-only">Loading…</p>}

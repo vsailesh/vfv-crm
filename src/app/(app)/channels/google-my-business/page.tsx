@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { MapPin, Star, MessageSquareReply, HelpCircle, Clock, RefreshCw } from "lucide-react";
+import { MapPin, Star, MessageSquareReply, HelpCircle, Clock, RefreshCw, Sparkles } from "lucide-react";
 import { Card, SecondaryButton } from "@/components/ui";
 
 type Review = {
@@ -23,6 +23,25 @@ const HOURS: Array<[string, string]> = [
   ["Saturday", "9:00 am – 5:00 pm"],
   ["Sunday", "Closed"],
 ];
+
+// Heuristic reply suggestion — rating + keyword aware, no external AI call
+function suggestReply(rating: number, body: string | null): string {
+  const text = (body ?? "").toLowerCase();
+  const concern: string | null = text.includes("rude") || text.includes("staff")
+    ? "I've shared your feedback with our team so this doesn't happen again"
+    : text.includes("wait") || text.includes("time") || text.includes("appointment")
+      ? "We're working on tighter scheduling so waits stay short"
+      : text.includes("price") || text.includes("cost") || text.includes("expensive")
+        ? "Happy to walk you through options that fit your budget"
+        : text.includes("clean") || text.includes("hygiene")
+          ? "Cleanliness is our top priority and we review it daily"
+          : null;
+
+  if (rating >= 5) return "Thank you so much for the 5 stars! It means a lot that you trusted us with your care. We look forward to seeing you again.";
+  if (rating === 4) return `Thank you for the great review!${concern ? ` ${concern}.` : ""} We'd love to make your next visit a 5-star one.`;
+  if (rating === 3) return `Thank you for the honest feedback — and sorry we fell short.${concern ? ` ${concern}.` : ""} Please call us at +91 98765 43210 so we can make it right.`;
+  return `We're truly sorry about your experience — this isn't the standard we hold ourselves to.${concern ? ` ${concern}.` : ""} Please reach out to +91 98765 43210 — Dr. Meera would like to personally follow up.`;
+}
 
 export default function GmbPage() {
   const [data, setData] = useState<GmbData | null>(null);
@@ -183,6 +202,10 @@ export default function GmbPage() {
                     <div className="flex gap-2">
                       <button onClick={() => setReplyFor(null)}
                         className="h-9 rounded-xl border border-gray-200 px-4 text-xs font-semibold hover:bg-gray-50">Cancel</button>
+                      <button onClick={() => setReplyText(suggestReply(r.rating, r.body))}
+                        className="flex h-9 items-center gap-1.5 rounded-xl border border-lime bg-lime/10 px-4 text-xs font-bold text-forest-800 hover:bg-lime/20">
+                        <Sparkles className="size-3.5" /> Suggest
+                      </button>
                       <button onClick={sendReply} disabled={busy || !replyText.trim()}
                         className="h-9 rounded-xl bg-lime px-4 text-xs font-semibold text-forest-950 hover:bg-lime-hover disabled:opacity-50">
                         {busy ? "Posting…" : "Post reply"}
