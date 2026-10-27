@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS segments (
   name TEXT NOT NULL,
   type TEXT NOT NULL DEFAULT 'static',     -- static | dynamic
   description TEXT,
-  customerIds TEXT NOT NULL DEFAULT '[]',  -- JSON array
+  customerIds TEXT NOT NULL DEFAULT '[]',  -- JSON array (static segments)
+  rules TEXT,                              -- JSON rule object (dynamic segments)
   createdAt TEXT NOT NULL,
   updatedAt TEXT NOT NULL
 );
@@ -221,6 +222,8 @@ CREATE TABLE IF NOT EXISTS settings (
 // Additive migrations for existing installs — CREATE IF NOT EXISTS won't add columns.
 const leadCols = (db.prepare("PRAGMA table_info(leads)").all() as Array<{ name: string }>).map((c) => c.name);
 if (!leadCols.includes("value")) db.exec("ALTER TABLE leads ADD COLUMN value INTEGER NOT NULL DEFAULT 0");
+const segCols = (db.prepare("PRAGMA table_info(segments)").all() as Array<{ name: string }>).map((c) => c.name);
+if (!segCols.includes("rules")) db.exec("ALTER TABLE segments ADD COLUMN rules TEXT");
 
 export { STAGES } from "./stages";
 export type { StageKey } from "./stages";
@@ -374,6 +377,14 @@ function seedInner() {
     "seg_0", "test segment", "static", null,
     JSON.stringify(customersWithLeads.slice(0, 4).map((c) => c.id)),
     iso(25 * day), iso(25 * day)
+  );
+  db.prepare("INSERT INTO segments (id, name, type, description, customerIds, rules, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?)").run(
+    "seg_1", "Fresh website leads", "dynamic", "Website-sourced leads still sitting in New — auto-updates as leads arrive and move.",
+    "[]", JSON.stringify({ sources: ["website"], stages: ["new"] }), iso(20 * day), iso(20 * day)
+  );
+  db.prepare("INSERT INTO segments (id, name, type, description, customerIds, rules, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?)").run(
+    "seg_2", "Active WhatsApp customers", "dynamic", "Everyone sourced from WhatsApp who is already an active customer.",
+    "[]", JSON.stringify({ sources: ["whatsapp"], statuses: ["active"] }), iso(18 * day), iso(18 * day)
   );
 
   // campaigns sample
