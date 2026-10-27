@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   DndContext, DragEndEvent, PointerSensor, useSensor, useSensors, useDraggable, useDroppable,
 } from "@dnd-kit/core";
-import { Search, Plus, Inbox as InboxIcon, ChevronRight, Undo2, X } from "lucide-react";
+import { Search, Plus, Inbox as InboxIcon, ChevronRight, Undo2, X, ListChecks, Check } from "lucide-react";
 import { STAGES } from "@/lib/stages";
 import { Badge, Card, StatPill } from "@/components/ui";
 
@@ -34,8 +34,21 @@ export default function PipelinePage() {
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
-  const [undo, setUndo] = useState<{ leadId: string; from: string; to: string; name: string } | null>(null);
+  const [undo, setUndo] = useState<{ moves: Array<{ leadId: string; from: string }>; to: string; label: string } | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // bulk selection
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkTo, setBulkTo] = useState("");
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!undo) return;
@@ -87,16 +100,32 @@ export default function PipelinePage() {
     if (!col) return;
     const lead = leads.find((l) => l.id === leadId);
     if (!lead || lead.status === col) return;
-    const from = lead.status;
     await moveLead(leadId, col);
-    setUndo({ leadId, from, to: col, name: lead.fullName });
+    setUndo({ moves: [{ leadId, from: lead.status }], to: col, label: lead.fullName });
+  }
+
+  async function moveSelected() {
+    if (!bulkTo || selected.size === 0) return;
+    const moves = leads
+      .filter((l) => selected.has(l.id) && l.status !== bulkTo)
+      .map((l) => ({ leadId: l.id, from: l.status }));
+    const to = bulkTo;
+    setSelected(new Set());
+    setBulkTo("");
+    if (!moves.length) return;
+    await Promise.all(moves.map((m) => moveLead(m.leadId, to)));
+    const first = leads.find((l) => l.id === moves[0].leadId);
+    setUndo({
+      moves, to,
+      label: moves.length === 1 ? (first?.fullName ?? "1 lead") : `${moves.length} leads`,
+    });
   }
 
   async function undoMove() {
     if (!undo) return;
-    const { leadId, from } = undo;
+    const moves = undo.moves;
     setUndo(null);
-    await moveLead(leadId, from);
+    await Promise.all(moves.map((m) => moveLead(m.leadId, m.from)));
   }
 
   return (
@@ -111,6 +140,21 @@ export default function PipelinePage() {
           <div className="flex items-center gap-3">
             <StatPill label="Total Leads" value={total} />
             <StatPill label="Pipeline Value" value={inr(leads.reduce((a, l) => a + (l.value ?? 0), 0))} />
+            <button
+              onClick={() => {
+                const next = !selectMode;
+                setSelectMode(next);
+                if (!next) setSelected(new Set());
+                setBulkTo("");
+              }}
+              className={`flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition-colors ${
+                selectMode
+                  ? "border-forest-950 bg-forest-950 text-white"
+                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <ListChecks className="size-4" /> {selectMode ? "Done" : "Select"}
+            </button>
             <button
               onClick={() => setShowNew(true)}
               className="flex h-10 items-center gap-2 rounded-xl bg-lime px-5 text-sm font-semibold text-forest-950 hover:bg-lime-hover"
@@ -149,7 +193,7 @@ export default function PipelinePage() {
             return (
               <Column key={stage.key} stage={stage} count={items.length} value={items.reduce((a, l) => a + (l.value ?? 0), 0)}>
                 {items.map((l) => (
-                  <LeadCard key={l.id} lead={l} />
+                  <LeadCard key={l.id} lead={l} selectMode={selectMode} isSelected={selected.has(l.id)} onToggleSelect={() => toggleSelect(l.id)} />
                 ))}
                 {items.length === 0 && (
                   <div className="flex flex-col items-center gap-2 py-10 text-center">
@@ -168,11 +212,40 @@ export default function PipelinePage() {
         </div>
       </DndContext>
 
+      {/* bulk selection action bar */}
+      {selectMode && selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2">
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-forest-950 px-5 py-3 text-sm text-white shadow-xl">
+            <span className="font-semibold">{selected.size} selected</span>
+            <select
+              value={bulkTo}
+              onChange={(e) => setBulkTo(e.target.value)}
+              className="h-9 rounded-lg border border-white/20 bg-white/10 px-2 text-xs font-semibold text-white outline-none"
+            >
+              <option value="" className="bg-white text-gray-900">Move to…</option>
+              {STAGES.map((s) => (
+                <option key={s.key} value={s.key} className="bg-white text-gray-900">{s.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={moveSelected}
+              disabled={!bulkTo}
+              className="h-9 rounded-lg bg-lime px-4 text-xs font-bold text-forest-950 hover:bg-lime-hover disabled:opacity-40"
+            >
+              Move
+            </button>
+            <button onClick={() => setSelected(new Set())} className="text-xs font-semibold text-gray-400 hover:text-white">
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       {undo && (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+        <div className={`fixed left-1/2 z-50 -translate-x-1/2 ${selectMode && selected.size > 0 ? "bottom-24" : "bottom-6"}`}>
           <div className="flex items-center gap-4 rounded-2xl bg-forest-950 px-5 py-3 text-sm text-white shadow-xl">
             <span>
-              Moved <strong>{undo.name}</strong> to{" "}
+              Moved <strong>{undo.label}</strong> to{" "}
               <strong>{STAGES.find((s) => s.key === undo.to)?.label ?? undo.to}</strong>
             </span>
             <button
@@ -249,7 +322,9 @@ function Column({
   );
 }
 
-function LeadCard({ lead }: { lead: Lead }) {
+function LeadCard({ lead, selectMode, isSelected, onToggleSelect }: {
+  lead: Lead; selectMode: boolean; isSelected: boolean; onToggleSelect: () => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id });
   return (
     <div
@@ -257,11 +332,21 @@ function LeadCard({ lead }: { lead: Lead }) {
       data-lead={lead.id}
       {...attributes}
       {...listeners}
+      onClick={selectMode ? onToggleSelect : undefined}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
-      className={`cursor-grab touch-none rounded-xl border border-gray-100 bg-white p-3 shadow-sm transition-shadow hover:shadow-card-hover active:cursor-grabbing ${
-        isDragging ? "z-10 opacity-60 ring-2 ring-lime" : ""
-      }`}
+      className={`touch-none rounded-xl border p-3 shadow-sm transition-shadow hover:shadow-card-hover ${
+        selectMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+      } ${
+        isSelected ? "border-forest-950 ring-2 ring-forest-950" : "border-gray-100 bg-white"
+      } ${isDragging ? "z-10 opacity-60 ring-2 ring-lime" : ""}`}
     >
+      {selectMode && (
+        <span className={`mb-2 grid size-5 place-items-center rounded-md border ${
+          isSelected ? "border-forest-950 bg-forest-950 text-white" : "border-gray-300 bg-white text-transparent"
+        }`}>
+          <Check className="size-3.5" strokeWidth={3} />
+        </span>
+      )}
       <div className="flex items-start justify-between gap-2">
         <p className="truncate text-sm font-semibold">{lead.fullName}</p>
         {typeof lead.score === "number" && <ScoreChip score={lead.score} />}
