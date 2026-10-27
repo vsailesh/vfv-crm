@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Search, MessageCircle, Phone, Filter } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Search, MessageCircle, Phone, Filter, Send } from "lucide-react";
 import { STAGES } from "@/lib/stages";
 import { Badge } from "@/components/ui";
 
@@ -10,6 +10,7 @@ type Conv = {
   customerId: string; name: string; phone: string; customerStatus: string; leadStage: string | null;
   staffName: string | null;
 };
+type Msg = { id: string; fromCustomer: number; body: string; sentAt: string };
 
 const PASTELS = ["bg-teal-100 text-teal-700", "bg-sky-100 text-sky-700", "bg-rose-100 text-rose-700", "bg-amber-100 text-amber-700"];
 
@@ -19,6 +20,10 @@ export default function InboxPage() {
   const [stage, setStage] = useState("all");
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(null);
+  const [thread, setThread] = useState<Msg[]>([]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/conversations?channel=${channel}&stage=${stage}${q ? `&q=${encodeURIComponent(q)}` : ""}`);
@@ -28,10 +33,46 @@ export default function InboxPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // load thread + mark read when a chat is opened
+  useEffect(() => {
+    if (!sel) { setThread([]); return; }
+    let live = true;
+    fetch(`/api/conversations/${sel}`).then((r) => r.json()).then((j) => {
+      if (!live) return;
+      setThread(j.data.messages);
+      setConvs((cs) => cs.map((c) => (c.id === sel ? { ...c, unseen: 0 } : c)));
+    });
+    return () => { live = false; };
+  }, [sel]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [thread]);
+
   const selected = convs.find((c) => c.id === sel);
   const fmt = (iso: string) =>
     new Date(iso).toLocaleDateString("en-IN", { month: "short", day: "numeric" }) + ", " +
     new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+
+  async function send() {
+    if (!sel || !draft.trim() || sending) return;
+    const body = draft.trim();
+    setDraft("");
+    setSending(true);
+    // optimistic
+    setThread((t) => [...t, { id: `tmp_${Date.now()}`, fromCustomer: 0, body, sentAt: new Date().toISOString() }]);
+    const res = await fetch(`/api/conversations/${sel}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    });
+    setSending(false);
+    if (res.ok) {
+      const json = await res.json();
+      setThread((t) => t.map((m) => (m.id.startsWith("tmp_") ? json.data : m)));
+      setConvs((cs) => cs.map((c) => (c.id === sel ? { ...c, lastSnippet: body.slice(0, 80), lastMessageAt: json.data.sentAt } : c)));
+    }
+  }
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
@@ -121,14 +162,29 @@ export default function InboxPage() {
                   <p className="font-semibold">{selected.name}</p>
                   <p className="text-xs text-gray-500">{selected.phone}</p>
                 </div>
+                {selected.channel === "whatsapp" && (
+                  <span className="ml-auto flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                    <MessageCircle className="size-3.5" /> WhatsApp
+                  </span>
+                )}
               </div>
-              <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-6">
-                <Bubble fromCustomer>{selected.lastSnippet}</Bubble>
-                <Bubble>Thank you! Our team will reach out shortly.</Bubble>
+              <div ref={scrollRef} className="scroll-thin flex flex-1 flex-col gap-3 overflow-y-auto p-6">
+                {thread.map((m) => (
+                  <Bubble key={m.id} fromCustomer={m.fromCustomer === 1} time={fmt(m.sentAt)}>{m.body}</Bubble>
+                ))}
               </div>
-              <div className="border-t border-gray-200 p-4">
-                <input placeholder="Type a message..." readOnly
-                  className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none" />
+              <div className="flex items-center gap-3 border-t border-gray-200 p-4">
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                  placeholder={selected.channel === "whatsapp" ? "Type a WhatsApp message..." : "Type a message..."}
+                  className="h-11 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-lime"
+                />
+                <button onClick={send} disabled={!draft.trim() || sending} aria-label="Send message"
+                  className="grid size-11 place-items-center rounded-xl bg-forest-950 text-white transition-opacity hover:opacity-90 disabled:opacity-40">
+                  <Send className="size-4" />
+                </button>
               </div>
             </>
           ) : (
@@ -157,10 +213,13 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
   );
 }
 
-function Bubble({ children, fromCustomer }: { children: React.ReactNode; fromCustomer?: boolean }) {
+function Bubble({ children, fromCustomer, time }: { children: React.ReactNode; fromCustomer?: boolean; time?: string }) {
   return (
-    <div className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm ${fromCustomer ? "self-start bg-gray-100" : "self-end bg-lime/40"}`}>
-      {children}
+    <div className={`flex flex-col gap-1 ${fromCustomer ? "self-start items-start" : "self-end items-end"}`}>
+      <div className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm ${fromCustomer ? "bg-gray-100" : "bg-lime/40"}`}>
+        {children}
+      </div>
+      {time && <span className="px-1 text-[10px] text-gray-400">{time}</span>}
     </div>
   );
 }

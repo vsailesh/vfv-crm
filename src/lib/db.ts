@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 
 const DB_PATH = path.join(process.cwd(), "data", "vfv.db");
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -22,6 +23,7 @@ CREATE TABLE IF NOT EXISTS staff (
   role TEXT NOT NULL DEFAULT 'staff',
   department TEXT,
   designation TEXT,
+  passwordHash TEXT,
   isActive INTEGER NOT NULL DEFAULT 1,
   isAvailable INTEGER NOT NULL DEFAULT 1,
   currentActiveLeads INTEGER NOT NULL DEFAULT 0,
@@ -116,6 +118,16 @@ CREATE TABLE IF NOT EXISTS messages (
   sentAt TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS campaigns (
+  id TEXT PRIMARY KEY,
+  segmentId TEXT NOT NULL REFERENCES segments(id),
+  name TEXT NOT NULL,
+  template TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued', -- queued | sent
+  recipientCount INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -139,10 +151,11 @@ function seedInner() {
     { id: "stf2", code: "STF-K4M2P", name: "Sreya", email: "sreyav84@gmail.com", phone: "+916303684177", role: "staff", dept: "Marketing", desc: "Marketing Associate" },
     { id: "stf3", code: "STF-A9X1Q", name: "Sailesh", email: "saileshv3756@gmail.com", phone: "+919494491166", role: "admin", dept: null, desc: null },
   ];
+  const hash = (email: string) => crypto.createHash("sha256").update(`${email.toLowerCase()}:veda123`).digest("hex");
   const insStaff = db.prepare(
-    "INSERT INTO staff (id, staffCode, name, email, phone, role, department, designation, isActive, isAvailable, currentActiveLeads, lastSeenAt, createdAt) VALUES (?,?,?,?,?,?,?,?,1,1,0,?,?)"
+    "INSERT INTO staff (id, staffCode, name, email, phone, role, department, designation, passwordHash, isActive, isAvailable, currentActiveLeads, lastSeenAt, createdAt) VALUES (?,?,?,?,?,?,?,?,?,1,1,0,?,?)"
   );
-  for (const s of staffSeed) insStaff.run(s.id, s.code, s.name, s.email, s.phone, s.role, s.dept, s.desc, iso(3 * day), iso(28 * day));
+  for (const s of staffSeed) insStaff.run(s.id, s.code, s.name, s.email, s.phone, s.role, s.dept, s.desc, hash(s.email), iso(3 * day), iso(28 * day));
 
   // Real VFV sample contacts (from capture) + synthetic fill
   const realNames: Array<[string, string, string | null]> = [
@@ -246,7 +259,9 @@ function seedInner() {
   const insMsg = db.prepare("INSERT INTO messages (id, conversationId, fromCustomer, body, sentAt) VALUES (?,?,?,?,?)");
   const convRows = customersWithLeads.slice(0, 18).map((c, i) => {
     const channel = i % 6 === 5 ? "manual" : "whatsapp";
-    const ago = day * (i % 20) + 3600000 * (i % 10);
+    // +2h floor: the agent reply is stamped 60s after the customer message,
+    // and a zero-ago conversation would push that reply into the future
+    const ago = day * (i % 20) + 3600000 * (i % 10) + 7200000;
     const snippet = i % 2 === 0 ? "Namaste, interested in consultation" : "Please share the course details";
     insConv.run(`conv_${i}`, c.id, channel, iso(ago), snippet, c.unseen);
     insMsg.run(`msg_${i}_0`, `conv_${i}`, 1, snippet, iso(ago));
@@ -259,6 +274,11 @@ function seedInner() {
     "seg_0", "test segment", "static", null,
     JSON.stringify(customersWithLeads.slice(0, 4).map((c) => c.id)),
     iso(25 * day), iso(25 * day)
+  );
+
+  // campaigns sample
+  db.prepare("INSERT INTO campaigns (id, segmentId, name, template, status, recipientCount, createdAt) VALUES (?,?,?,?,?,?,?)").run(
+    "cmp_0", "seg_0", "Panchakarma intro", "Namaste {{name}}, our panchakarma consultation slots are open this week. Reply to book.", "sent", 4, iso(20 * day)
   );
 
   // follow-ups sample
