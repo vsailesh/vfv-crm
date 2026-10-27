@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  DndContext, DragEndEvent, PointerSensor, useSensor, useSensors, useDroppable,
+  DndContext, DragEndEvent, PointerSensor, useSensor, useSensors, useDraggable, useDroppable,
 } from "@dnd-kit/core";
 import { Search, Plus, Inbox as InboxIcon, ChevronRight } from "lucide-react";
 import { STAGES } from "@/lib/stages";
@@ -184,10 +184,17 @@ function Column({
 }
 
 function LeadCard({ lead }: { lead: Lead }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id });
   return (
     <div
+      ref={setNodeRef}
       data-lead={lead.id}
-      className="cursor-grab rounded-xl border border-gray-100 bg-white p-3 shadow-sm transition-shadow hover:shadow-card-hover active:cursor-grabbing"
+      {...attributes}
+      {...listeners}
+      style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
+      className={`cursor-grab touch-none rounded-xl border border-gray-100 bg-white p-3 shadow-sm transition-shadow hover:shadow-card-hover active:cursor-grabbing ${
+        isDragging ? "z-10 opacity-60 ring-2 ring-lime" : ""
+      }`}
     >
       <p className="truncate text-sm font-semibold">{lead.fullName}</p>
       <p className="mt-0.5 text-xs text-gray-500">+91 {lead.phone}</p>
@@ -205,7 +212,12 @@ function LeadCard({ lead }: { lead: Lead }) {
         {lead.assignedToStaffName ? (
           <span className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{lead.assignedToStaffName}</span>
         ) : <span />}
-        <Link href={`/crm/customers/${lead.customerId}`} className="flex items-center gap-0.5 text-xs font-semibold text-forest-900 hover:underline">
+        <Link
+          href={`/crm/customers/${lead.customerId}`}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="flex items-center gap-0.5 text-xs font-semibold text-forest-900 hover:underline"
+        >
           View <ChevronRight className="size-3" />
         </Link>
       </div>
