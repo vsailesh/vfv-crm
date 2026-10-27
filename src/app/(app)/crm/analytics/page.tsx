@@ -19,7 +19,7 @@ type Overview = {
   retention: { noFollowUpScheduled: number; highEngagement: number };
   activity: { customerActivities: number; notesAdded: number; staffAssignments: number };
   healthScore: number;
-  alerts: Array<{ type: string; title: string; description: string }>;
+  alerts: Array<{ type: string; title: string; urgency?: string; description: string; cause?: string; actionLabel?: string; actionPath?: string }>;
 };
 
 const RANGES = ["7d", "30d", "90d"] as const;
@@ -202,17 +202,36 @@ export default function AnalyticsPage() {
         </div>
       </Card>
 
-      {/* alerts */}
-      <section className="grid gap-4 md:grid-cols-2">
-        {data.alerts.map((a) => (
-          <Card key={a.title} className="flex items-start gap-3 p-5">
-            <span className={`mt-0.5 size-2.5 shrink-0 rounded-full ${a.type === "warning" ? "bg-amber-500" : "bg-sky-500"}`} />
-            <div>
-              <p className="text-sm font-bold">{a.title}</p>
-              <p className="mt-0.5 text-sm leading-relaxed text-gray-500">{a.description}</p>
-            </div>
-          </Card>
-        ))}
+      {/* Smart Insights — what's broken, why, and the next tap */}
+      <section className="space-y-4">
+        <h2 className="flex items-center gap-2 text-lg font-bold"><Sparkles className="size-5 text-amber-500" /> Smart Insights</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          {data.alerts.map((a) => (
+            <Card key={a.title} className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-bold">{a.title}</p>
+                {a.urgency && (
+                  <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase ${
+                    a.urgency === "High" ? "bg-red-50 text-red-600" : a.urgency === "Medium" ? "bg-amber-50 text-amber-600" : "bg-gray-100 text-gray-500"
+                  }`}>
+                    {a.urgency}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-sm leading-relaxed text-gray-500">{a.description}</p>
+              {a.cause && (
+                <p className="mt-3 text-xs text-gray-400">
+                  <span className="font-bold uppercase tracking-wider">Likely cause</span> · {a.cause}
+                </p>
+              )}
+              {a.actionPath && (
+                <Link href={a.actionPath} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-forest-900 underline decoration-lime decoration-2 underline-offset-4">
+                  {a.actionLabel ?? "Open"} →
+                </Link>
+              )}
+            </Card>
+          ))}
+        </div>
       </section>
     </div>
   );

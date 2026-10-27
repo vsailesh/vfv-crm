@@ -93,8 +93,33 @@ export async function GET(req: NextRequest) {
     },
     healthScore: health,
     alerts: [
-      { type: "warning", title: "Unassigned customers", description: `${unassigned} customers have no staff on file and no assigned lead — assign owners to improve follow-through.` },
-      { type: "info", title: "No follow-up on file", description: `${noFollowUp} customers have no scheduled lead follow-up — book the next touch.` },
+      {
+        type: "warning", title: "Unassigned customers", urgency: "Medium",
+        description: `${unassigned} customers have no staff on file and no assigned lead — assign owners to improve follow-through.`,
+        cause: "No accountability owner per account.",
+        actionLabel: "Assign owners", actionPath: "/crm/customers",
+      },
+      {
+        type: "info", title: "No follow-up on file", urgency: "Medium",
+        description: `${noFollowUp} customers have no scheduled lead follow-up — book the next touch.`,
+        cause: "No next touch anchored on active deals.",
+        actionLabel: "Book follow-ups", actionPath: "/crm/follow-ups",
+      },
+      {
+        type: leakage.some((l) => l.count > 0) ? "warning" : "info", title: "Pipeline leakage",
+        urgency: leakage.some((l) => l.count > 0) ? "High" : "Low",
+        description: leakage.some((l) => l.count > 0)
+          ? `${leakage.reduce((a, l) => a + l.count, 0)} deals are sitting in key stages past SLA — prioritize next actions or reschedule.`
+          : "No deals stuck past SLA — the funnel is moving.",
+        cause: "SLA drift in active funnel stages.",
+        actionLabel: "Open Pipeline", actionPath: "/crm/pipeline",
+      },
+      {
+        type: "info", title: "Channel mix", urgency: "Low",
+        description: `WhatsApp-sourced rows: ${byChannel.find((b) => b.source.toLowerCase().includes("whatsapp"))?.count ?? 0}; manual: ${byChannel.find((b) => b.source === "manual")?.count ?? 0}. Compare conversion in Pipeline and double down on what wins.`,
+        cause: "Contextual signal.",
+        actionLabel: "Dig in", actionPath: "/crm/pipeline",
+      },
     ],
   });
 }
