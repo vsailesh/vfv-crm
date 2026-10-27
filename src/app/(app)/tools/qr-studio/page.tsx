@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import {
   Plus, Search, Copy, Check, Pencil, Pause, Play, Trash2, X,
-  Link2, Target, ChevronDown, RefreshCw,
+  Link2, Target, ChevronDown, RefreshCw, Download,
 } from "lucide-react";
 import { Card, PrimaryButton } from "@/components/ui";
 
@@ -218,6 +218,11 @@ function QrCard({ qr, onCopy, copied, onFlip, onEdit, onDelete }: {
           {dataUrl ? <img src={dataUrl} alt={`QR for ${qr.name}`} className="size-24" /> : <div className="size-24 animate-pulse rounded-lg bg-gray-100" />}
         </div>
         <div className="flex flex-col gap-1.5">
+          <a href={dataUrl || "#"} download={`${qr.name.replace(/\s+/g, "-").toLowerCase()}-qr.png`}
+            aria-label={`Download QR for ${qr.name}`} title="Download PNG"
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-semibold hover:bg-gray-50">
+            <Download className="size-3" /> Download
+          </a>
           <button onClick={onEdit} className="flex h-8 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-semibold hover:bg-gray-50">
             <Pencil className="size-3" /> Edit
           </button>

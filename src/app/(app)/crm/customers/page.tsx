@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Download, FileUp, Upload, Plus, Eye, Info } from "lucide-react";
+import { Search, Download, FileUp, Upload, Plus, Eye, Info, MessageCircle } from "lucide-react";
 import { STAGES } from "@/lib/stages";
 import { Badge, Card, StatPill, SecondaryButton, PrimaryButton } from "@/components/ui";
 
@@ -28,15 +28,18 @@ type Customer = {
 export default function CustomersPage() {
   const [rows, setRows] = useState<Customer[]>([]);
   const [stats, setStats] = useState({ total: 0, whatsapp: 0, activeCount: 0 });
+  const [meta, setMeta] = useState({ page: 1, limit: 50, total: 0, pages: 1 });
+  const [page, setPage] = useState(1);
   const [tab, setTab] = useState<"active" | "archived">("active");
   const [q, setQ] = useState("");
   const [filters, setFilters] = useState({ source: "", stage: "", status: "", staff: "" });
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string }>>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showNew, setShowNew] = useState(false);
+  const [assignTo, setAssignTo] = useState<string>("");
 
   const load = useCallback(async () => {
-    const sp = new URLSearchParams({ limit: "50" });
+    const sp = new URLSearchParams({ limit: "50", page: String(page) });
     if (tab === "archived") sp.set("status", "archived");
     if (q) sp.set("q", q);
     if (filters.source) sp.set("source", filters.source);
@@ -47,12 +50,14 @@ export default function CustomersPage() {
     const json = await res.json();
     setRows(json.data.data);
     setStats(json.data.stats);
-  }, [tab, q, filters]);
+    setMeta(json.data.meta);
+  }, [tab, q, filters, page]);
 
   useEffect(() => {
     fetch("/api/staff").then((r) => r.json()).then((j) => setStaffList(j.data.data));
   }, []);
 
+  useEffect(() => { setPage(1); }, [tab, q, filters]);
   useEffect(() => { load(); }, [load]);
 
   function toggle(id: string) {
@@ -62,6 +67,37 @@ export default function CustomersPage() {
       return n;
     });
   }
+
+  // bulk assign: one PATCH per selected customer
+  async function bulkAssign() {
+    if (!assignTo) return;
+    await Promise.all([...selected].map((id) =>
+      fetch(`/api/customers/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedStaffId: assignTo }),
+      })));
+    setSelected(new Set());
+    setAssignTo("");
+    load();
+  }
+
+  // client-side CSV of the selected rows
+  function exportSelected() {
+    const picked = rows.filter((r) => selected.has(r.id));
+    const head = "Name,Phone,CustomerNumber,Source,Pipeline,Lifecycle,Staff,City,UpdatedAt";
+    const csv = [head, ...picked.map((r) =>
+      [r.name, r.phone, r.customerNumber, r.source, r.leadStage ?? "", r.status, r.assignedStaffName ?? "", r.city ?? "", r.updatedAt]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `vfv-customers-${picked.length}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  const from = meta.total === 0 ? 0 : (meta.page - 1) * meta.limit + 1;
+  const to = Math.min(meta.page * meta.limit, meta.total);
+  const archivedCount = Math.max(0, stats.total - stats.activeCount);
 
   return (
     <div className="space-y-6 p-6 lg:p-8">
@@ -75,7 +111,7 @@ export default function CustomersPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <StatPill label="Total Records :" value={stats.total.toLocaleString()} />
-            <SecondaryButton><Download className="size-4 text-gray-500" /> Export</SecondaryButton>
+            <SecondaryButton onClick={exportSelected}><Download className="size-4 text-gray-500" /> Export</SecondaryButton>
             <SecondaryButton><FileUp className="size-4 text-gray-500" /> Template</SecondaryButton>
             <SecondaryButton><Upload className="size-4 text-gray-500" /> Bulk Import</SecondaryButton>
             <PrimaryButton onClick={() => setShowNew(true)}><Plus className="size-4" /> New Customer</PrimaryButton>
@@ -85,10 +121,13 @@ export default function CustomersPage() {
         <div className="flex gap-2">
           {(["active", "archived"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
-              className={`h-10 rounded-full px-5 text-[11px] font-bold uppercase tracking-wider ${
+              className={`flex h-10 items-center gap-2 rounded-full px-5 text-[11px] font-bold uppercase tracking-wider ${
                 tab === t ? "bg-forest-950 text-white" : "text-gray-500 hover:bg-gray-100"
               }`}>
               {t} Contacts
+              <span className={`rounded-full px-1.5 text-[10px] ${tab === t ? "bg-lime text-forest-950" : "bg-gray-200 text-gray-600"}`}>
+                {t === "active" ? stats.activeCount : archivedCount}
+              </span>
             </button>
           ))}
         </div>
@@ -114,10 +153,27 @@ export default function CustomersPage() {
       </Card>
 
       <Card>
-        <div className="flex items-start gap-3 px-6 py-5 text-sm text-gray-600">
-          <Info className="mt-0.5 size-4 shrink-0 text-gray-400" />
-          <p>Select profiles to perform batch actions. You can select individual rows, the current page, or use Select all (filtered) to target every customer matching your current search and filters.</p>
-        </div>
+        {selected.size > 0 ? (
+          <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 bg-lime/10 px-6 py-4">
+            <p className="text-sm font-bold">{selected.size} selected</p>
+            <select value={assignTo} onChange={(e) => setAssignTo(e.target.value)}
+              className="h-9 rounded-xl border border-gray-200 bg-white px-3 text-sm outline-none">
+              <option value="">Assign to staff…</option>
+              {staffList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <button onClick={bulkAssign} disabled={!assignTo}
+              className="h-9 rounded-xl bg-forest-950 px-4 text-xs font-semibold text-white disabled:opacity-40">Apply</button>
+            <button onClick={exportSelected}
+              className="h-9 rounded-xl border border-gray-200 bg-white px-4 text-xs font-semibold hover:bg-gray-50">Export CSV</button>
+            <button onClick={() => setSelected(new Set())}
+              className="ml-auto text-xs font-semibold text-gray-500 hover:text-gray-800">Clear selection</button>
+          </div>
+        ) : (
+          <div className="flex items-start gap-3 px-6 py-5 text-sm text-gray-600">
+            <Info className="mt-0.5 size-4 shrink-0 text-gray-400" />
+            <p>Select profiles to perform batch actions. You can select individual rows, the current page, or use Select all (filtered) to target every customer matching your current search and filters.</p>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px]">
             <thead>
@@ -157,15 +213,31 @@ export default function CustomersPage() {
                   <td className="px-4 py-4 text-sm text-gray-600">{r.city ? `${r.city}${r.state ? ", " + r.state : ""}` : <span className="text-gray-300">—</span>}</td>
                   <td className="px-4 py-4 text-sm text-gray-500">{new Date(r.updatedAt).toLocaleDateString("en-IN", { month: "short", day: "numeric" })}</td>
                   <td className="px-4 py-4">
-                    <Link href={`/crm/customers/${r.id}`} aria-label={`View ${r.name}`}
-                      className="grid size-9 place-items-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700">
-                      <Eye className="size-4" />
-                    </Link>
+                    <div className="flex items-center gap-1">
+                      <a href={`https://wa.me/91${r.phone.replace(/\D/g, "").slice(-10)}`} target="_blank" rel="noreferrer" aria-label={`WhatsApp ${r.name}`}
+                        className="grid size-9 place-items-center rounded-lg text-emerald-600 hover:bg-emerald-50">
+                        <MessageCircle className="size-4" />
+                      </a>
+                      <Link href={`/crm/customers/${r.id}`} aria-label={`View ${r.name}`}
+                        className="grid size-9 place-items-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+                        <Eye className="size-4" />
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-6 py-4 text-sm text-gray-500">
+          <p>Showing {from}–{to} of {meta.total.toLocaleString()}</p>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={meta.page <= 1}
+              className="h-9 rounded-xl border border-gray-200 px-4 text-xs font-semibold disabled:opacity-40 hover:bg-gray-50">Previous</button>
+            <span className="text-xs font-semibold">Page {meta.page} / {meta.pages}</span>
+            <button onClick={() => setPage((p) => Math.min(meta.pages, p + 1))} disabled={meta.page >= meta.pages}
+              className="h-9 rounded-xl border border-gray-200 px-4 text-xs font-semibold disabled:opacity-40 hover:bg-gray-50">Next</button>
+          </div>
         </div>
       </Card>
 

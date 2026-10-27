@@ -10,12 +10,13 @@ export async function GET(req: NextRequest) {
     `SELECT f.*, c.name AS customerName, c.phone FROM followups f JOIN customers c ON c.id = f.customerId${where} ORDER BY f.dueAt ASC`
   ).all(...params);
 
+  // stat cards always reflect the PENDING queue, regardless of active tab
+  const pending = db.prepare(
+    "SELECT dueAt FROM followups WHERE status = 'pending'"
+  ).all() as Array<{ dueAt: string }>;
   const now = Date.now();
-  const counts = {
-    overdue: 0, today: 0, week: 0, all: rows.length,
-  } as { overdue: number; today: number; week: number; all: number };
-  for (const r of rows as Array<{ dueAt: string; status: string }>) {
-    if (r.status !== "pending") continue;
+  const counts = { overdue: 0, today: 0, week: 0, all: pending.length };
+  for (const r of pending) {
     const due = new Date(r.dueAt).getTime();
     if (due < now) counts.overdue++;
     else if (due < now + 86400000) counts.today++;

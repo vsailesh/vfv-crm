@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, ArrowDownWideNarrow, ChevronRight, Megaphone, Send, CheckCircle2, Clock } from "lucide-react";
-import { Card, StatPill, SecondaryButton, PrimaryButton } from "@/components/ui";
+import { Plus, ArrowDownWideNarrow, ChevronRight, Megaphone, Send, CheckCircle2, Clock, Trash2 } from "lucide-react";
+import { Card, SecondaryButton, PrimaryButton } from "@/components/ui";
 
 type Segment = {
   id: string; name: string; type: string; description: string | null;
@@ -34,6 +34,13 @@ export default function SegmentsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function removeSegment(id: string, name: string) {
+    if (!window.confirm(`Delete segment "${name}"? Campaigns already sent keep their counts.`)) return;
+    await fetch(`/api/segments?id=${id}`, { method: "DELETE" });
+    setExpanded(null);
+    load();
+  }
 
   async function toggleDetails(id: string) {
     if (expanded === id) { setExpanded(null); return; }
@@ -92,15 +99,14 @@ export default function SegmentsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <StatPill label="Total Segments" value={rows.length} />
           <SecondaryButton><ArrowDownWideNarrow className="size-4 text-gray-500" /> Newest First</SecondaryButton>
-          <PrimaryButton onClick={() => setShowNew(true)}><Plus className="size-4" /> New Group</PrimaryButton>
+          <PrimaryButton onClick={() => setShowNew(true)}><Plus className="size-4" /> New Segment</PrimaryButton>
         </div>
       </Card>
 
       <div className="grid grid-cols-2 gap-4">
         <Card className="p-5">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Total Groups</p>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Total Segments</p>
           <p className="mt-1 text-3xl font-bold">{rows.length}</p>
         </Card>
         <Card className="p-5">
@@ -115,7 +121,13 @@ export default function SegmentsPage() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
               {s.type === "static" ? "Manual List" : "Dynamic List"}
             </p>
-            <h3 className="mt-1 text-lg font-bold">{s.name}</h3>
+            <h3 className="mt-1 flex items-center justify-between gap-2 text-lg font-bold">
+              {s.name}
+              <button onClick={() => removeSegment(s.id, s.name)} aria-label={`Delete ${s.name}`}
+                className="grid size-8 shrink-0 place-items-center rounded-lg text-gray-300 hover:bg-red-50 hover:text-red-500">
+                <Trash2 className="size-4" />
+              </button>
+            </h3>
             <p className="mt-1 text-sm text-gray-500">{s.description ?? "No description provided."}</p>
             <div className="mt-4 space-y-1 text-xs text-gray-400">
               <p><span className="font-bold text-gray-900">{s.count}</span> AUDIENCE</p>
@@ -190,7 +202,7 @@ export default function SegmentsPage() {
       {showNew && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setShowNew(false)}>
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-4 text-lg font-bold">New Group</h2>
+            <h2 className="mb-4 text-lg font-bold">New Segment</h2>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Segment name" autoFocus
               className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-lime" />
             <div className="mt-5 flex gap-3">

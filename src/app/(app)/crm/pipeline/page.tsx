@@ -193,7 +193,13 @@ function LeadCard({ lead }: { lead: Lead }) {
       <p className="mt-0.5 text-xs text-gray-500">+91 {lead.phone}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <Badge variant={lead.source}>{lead.source}</Badge>
-        <Badge variant={lead.customerStatus}>{lead.customerStatus}</Badge>
+        {lead.status === "converted" ? (
+          <Badge variant="converted">won</Badge>
+        ) : lead.status === "lost" ? (
+          <Badge variant="lost">lost</Badge>
+        ) : (
+          <Badge variant={lead.customerStatus}>{lead.customerStatus}</Badge>
+        )}
       </div>
       <div className="mt-2 flex items-center justify-between">
         {lead.assignedToStaffName ? (
