@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   const params: unknown[] = [];
   if (q) { where += " AND (c.name LIKE ? OR c.phone LIKE ?)"; params.push(`%${q}%`, `%${q}%`); }
   if (status) { where += " AND c.status = ?"; params.push(status); }
+  else { where += " AND c.status != 'archived'"; }
   if (source) { where += " AND c.source = ?"; params.push(source); }
   if (staff) { where += " AND c.assignedStaffId = ?"; params.push(staff); }
   if (stage) { where += " AND c.leadStage = ?"; params.push(stage); }

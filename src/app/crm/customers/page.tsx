@@ -3,7 +3,21 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Search, Download, FileUp, Upload, Plus, Eye, Info } from "lucide-react";
+import { STAGES } from "@/lib/stages";
 import { Badge, Card, StatPill, SecondaryButton, PrimaryButton } from "@/components/ui";
+
+function FilterSelect({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void; options: Record<string, string>;
+}) {
+  return (
+    <label className="flex h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700">
+      <span className="sr-only">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-transparent outline-none">
+        {Object.entries(options).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
+  );
+}
 
 type Customer = {
   id: string; name: string; phone: string; source: string; leadStage: string | null;
@@ -16,15 +30,28 @@ export default function CustomersPage() {
   const [stats, setStats] = useState({ total: 0, whatsapp: 0, activeCount: 0 });
   const [tab, setTab] = useState<"active" | "archived">("active");
   const [q, setQ] = useState("");
+  const [filters, setFilters] = useState({ source: "", stage: "", status: "", staff: "" });
+  const [staffList, setStaffList] = useState<Array<{ id: string; name: string }>>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showNew, setShowNew] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/customers?limit=50${tab === "archived" ? "&status=archived" : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`);
+    const sp = new URLSearchParams({ limit: "50" });
+    if (tab === "archived") sp.set("status", "archived");
+    if (q) sp.set("q", q);
+    if (filters.source) sp.set("source", filters.source);
+    if (filters.stage) sp.set("stage", filters.stage);
+    if (tab === "active" && filters.status) sp.set("status", filters.status);
+    if (filters.staff) sp.set("staff", filters.staff);
+    const res = await fetch(`/api/customers?${sp}`);
     const json = await res.json();
     setRows(json.data.data);
     setStats(json.data.stats);
-  }, [tab, q]);
+  }, [tab, q, filters]);
+
+  useEffect(() => {
+    fetch("/api/staff").then((r) => r.json()).then((j) => setStaffList(j.data.data));
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
@@ -73,11 +100,16 @@ export default function CustomersPage() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          {["All Segments", "All Tags", "All Sources", "All Pipeline", "All Lifecycle", "All Staff"].map((f) => (
-            <button key={f} className="flex h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              {f}
-            </button>
-          ))}
+          <FilterSelect label="Source" value={filters.source} onChange={(v) => setFilters({ ...filters, source: v })}
+            options={{ "": "All Sources", website: "Website", whatsapp: "WhatsApp", manual: "Manual", qr: "QR" }} />
+          <FilterSelect label="Pipeline" value={filters.stage} onChange={(v) => setFilters({ ...filters, stage: v })}
+            options={{ "": "All Pipeline", ...Object.fromEntries(STAGES.map((s) => [s.key, s.label])) }} />
+          {tab === "active" && (
+            <FilterSelect label="Lifecycle" value={filters.status} onChange={(v) => setFilters({ ...filters, status: v })}
+              options={{ "": "All Lifecycle", prospect: "Prospect", active: "Active" }} />
+          )}
+          <FilterSelect label="Staff" value={filters.staff} onChange={(v) => setFilters({ ...filters, staff: v })}
+            options={{ "": "All Staff", ...Object.fromEntries(staffList.map((s) => [s.id, s.name])) }} />
         </div>
       </Card>
 

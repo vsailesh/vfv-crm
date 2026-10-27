@@ -7,11 +7,13 @@ import { Card, StatPill, SecondaryButton, PrimaryButton } from "@/components/ui"
 type Segment = {
   id: string; name: string; type: string; description: string | null;
   customerIds: string[]; count: number; updatedAt: string;
+  customers?: Array<{ id: string; name: string; phone: string }>;
 };
 
 export default function SegmentsPage() {
   const [rows, setRows] = useState<Segment[]>([]);
   const [showNew, setShowNew] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [name, setName] = useState("");
 
   const load = useCallback(async () => {
@@ -21,6 +23,18 @@ export default function SegmentsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function toggleDetails(id: string) {
+    if (expanded === id) { setExpanded(null); return; }
+    const seg = rows.find((r) => r.id === id);
+    if (seg && !seg.customers && seg.customerIds.length > 0) {
+      const json = await fetch(`/api/customers?limit=100`).then((r) => r.json());
+      const byId = new Map(json.data.data.map((c: any) => [c.id, c]));
+      seg.customers = seg.customerIds.map((cid) => byId.get(cid) as { id: string; name: string; phone: string } | undefined).filter((x): x is { id: string; name: string; phone: string } => Boolean(x));
+      setRows([...rows]);
+    }
+    setExpanded(id);
+  }
 
   async function create() {
     if (!name.trim()) return;
@@ -71,11 +85,24 @@ export default function SegmentsPage() {
               <p><span className="font-bold text-gray-900">{s.count}</span> AUDIENCE</p>
               <p>LAST UPDATED {new Date(s.updatedAt).toLocaleDateString("en-IN", { month: "long", day: "numeric", year: "numeric" }).toUpperCase()}</p>
             </div>
+            {expanded === s.id && s.customers && (
+              <ul className="mt-4 space-y-1.5 rounded-xl bg-gray-50 p-3">
+                {s.customers.length === 0 && <li className="text-xs text-gray-400">No customers in this segment yet.</li>}
+                {s.customers.map((c) => (
+                  <li key={c.id} className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-gray-700">{c.name}</span>
+                    <span className="text-gray-400">+91 {c.phone}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
             <div className="mt-5 flex gap-2">
-              <button className="flex h-9 flex-1 items-center justify-center gap-1 rounded-xl border border-gray-200 text-xs font-semibold hover:bg-gray-50">
-                View Details <ChevronRight className="size-3" />
+              <button onClick={() => toggleDetails(s.id)} className="flex h-9 flex-1 items-center justify-center gap-1 rounded-xl border border-gray-200 text-xs font-semibold hover:bg-gray-50">
+                {expanded === s.id ? "Hide Details" : "View Details"}
+                <ChevronRight className={`size-3 transition-transform ${expanded === s.id ? "rotate-90" : ""}`} />
               </button>
-              <button className="flex h-9 flex-1 items-center justify-center gap-1 rounded-xl bg-forest-950 text-xs font-semibold text-white hover:opacity-90">
+              <button className="flex h-9 flex-1 items-center justify-center gap-1 rounded-xl bg-forest-950 text-xs font-semibold text-white hover:opacity-90" title="Campaign builder is not wired up yet">
                 <Megaphone className="size-3" /> Campaign
               </button>
             </div>

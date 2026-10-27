@@ -30,3 +30,18 @@ export async function POST(req: NextRequest) {
   ).run(id, `STF-${Math.random().toString(36).slice(2, 7).toUpperCase()}`, b.name, b.email, b.phone ?? null, b.role ?? "staff", b.department ?? null, b.designation ?? null, new Date().toISOString());
   return ok({ id });
 }
+
+// PATCH /api/staff — { id, isActive?, role?, department? }
+export async function PATCH(req: NextRequest) {
+  const b = await req.json().catch(() => null);
+  if (!b?.id) return bad("id required");
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  for (const f of ["isActive", "role", "department"] as const) {
+    if (b[f] !== undefined) { sets.push(`${f} = ?`); params.push(b[f]); }
+  }
+  if (!sets.length) return bad("nothing to update");
+  params.push(b.id);
+  db.prepare(`UPDATE staff SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+  return ok({ id: b.id });
+}

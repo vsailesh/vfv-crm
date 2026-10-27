@@ -29,8 +29,8 @@ export default function AnalyticsPage() {
   const [range, setRange] = useState<(typeof RANGES)[number]>("30d");
 
   useEffect(() => {
-    fetch("/api/analytics").then((r) => r.json()).then((j) => setData(j.data));
-  }, []);
+    fetch(`/api/analytics?range=${range}`).then((r) => r.json()).then((j) => setData(j.data));
+  }, [range]);
 
   if (!data) return <div className="p-8 text-sm text-gray-500">Crunching numbers…</div>;
 

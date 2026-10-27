@@ -1,11 +1,14 @@
+import { NextRequest } from "next/server";
 import db, { STAGES } from "@/lib/db";
 import { ok } from "@/lib/api";
 
-// GET /api/analytics — mirrors buzbiz /v1/crm/analytics/overview shape
-export async function GET() {
+// GET /api/analytics?range=7d|30d|90d — mirrors buzbiz /v1/crm/analytics/overview shape
+export async function GET(req: NextRequest) {
   const now = Date.now();
   const day = 86400000;
-  const from = new Date(now - 30 * day).toISOString();
+  const preset = req.nextUrl.searchParams.get("range") ?? "30d";
+  const days = preset === "7d" ? 7 : preset === "90d" ? 90 : 30;
+  const from = new Date(now - days * day).toISOString();
   const to = new Date(now + day).toISOString();
 
   const stageDistribution = (db.prepare("SELECT status AS stage, COUNT(*) AS count FROM leads GROUP BY status").all() as Array<{ stage: string; count: number }>);
@@ -55,7 +58,7 @@ export async function GET() {
   )));
 
   return ok({
-    range: { from, to, preset: "30d" },
+    range: { from, to, preset },
     focusToday: [
       unassigned > 0
         ? { id: "unassigned", tone: "warning", emoji: "👤", headline: `${unassigned} customers with no owner`, subline: "Assign staff so every account has a clear owner.", ctaLabel: "Customers", ctaPath: "/crm/customers" }
@@ -72,7 +75,7 @@ export async function GET() {
       followUpCompletionPct: 0,
       unassignedCustomers: unassigned,
       missedFollowUps: missed,
-      newCustomersInRange: totalCustomers,
+      newCustomersInRange: (db.prepare("SELECT COUNT(*) AS n FROM customers WHERE createdAt >= ?").get(from) as { n: number }).n,
     },
     pipeline: { stageDistribution: pipeline, leakage },
     sources: { byChannel: byChannel.map((b) => ({ channel: cap(b.source), count: b.count })), multiChannelPct: 0, totalWithAcquisition: totalCustomers },

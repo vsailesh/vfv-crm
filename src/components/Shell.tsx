@@ -34,13 +34,13 @@ const NAV: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Channels",
     items: [
-      { label: "WhatsApp", icon: MessageCircle },
-      { label: "Google My Business", icon: MapPin },
+      { href: "/channels/whatsapp", label: "WhatsApp", icon: MessageCircle },
+      { href: "/channels/google-my-business", label: "Google My Business", icon: MapPin },
     ],
   },
   {
     label: "Tools",
-    items: [{ label: "QR Studio", icon: QrCode }],
+    items: [{ href: "/tools/qr-studio", label: "QR Studio", icon: QrCode }],
   },
 ];
 
@@ -114,14 +114,14 @@ export function Sidebar() {
                     )}
                   </div>
                 ) : "href" in item ? (
-                  <Link key={item.href} href={item.href} className={itemCls(path === item.href)}>
-                    <item.icon className="size-[18px]" />
-                    {item.label}
+                  <Link key={item.href} href={item.href} title={item.label} className={itemCls(path === item.href)}>
+                    <item.icon className="size-[18px] shrink-0" />
+                    {collapsed ? <span className="sr-only">{item.label}</span> : item.label}
                   </Link>
                 ) : (
-                  <span key={item.label} className="flex cursor-default items-center gap-3 rounded-xl px-4 py-2.5 text-sm text-white/45">
-                    <item.icon className="size-[18px]" />
-                    {collapsed ? "" : item.label}
+                  <span key={item.label} className={`flex cursor-default items-center gap-3 rounded-xl px-4 py-2.5 text-sm text-white/45 ${collapsed ? "justify-center px-2" : ""}`}>
+                    <item.icon className="size-[18px] shrink-0" />
+                    {collapsed ? <span className="sr-only">{item.label}</span> : item.label}
                   </span>
                 )
               )}
@@ -143,7 +143,21 @@ export function Sidebar() {
   );
 }
 
-export function TopBar({ tokens = "100,000" }: { tokens?: string }) {
+export function TopBar({ tokens }: { tokens?: string }) {
+  const [balance, setBalance] = useState(tokens ?? "—");
+  const [spinning, setSpinning] = useState(false);
+
+  async function refresh() {
+    setSpinning(true);
+    try {
+      const json = await fetch("/api/settings").then((r) => r.json());
+      const n: number = json?.data?.aiTokens ?? 0;
+      setBalance(n.toLocaleString("en-IN"));
+    } finally {
+      setTimeout(() => setSpinning(false), 600);
+    }
+  }
+
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-200 bg-page px-6">
       <div className="flex items-center gap-3">
@@ -154,10 +168,11 @@ export function TopBar({ tokens = "100,000" }: { tokens?: string }) {
         <span className="flex h-10 items-center gap-2 rounded-full border border-gray-200 bg-white px-4 text-[13px]">
           <Coins className="size-4 text-gray-400" />
           <span className="font-semibold uppercase tracking-wide text-gray-500">AI Tokens:</span>
-          <span className="font-bold">{tokens}</span>
+          <span className="font-bold">{balance}</span>
         </span>
-        <button aria-label="Refresh token balance" className="grid size-10 place-items-center rounded-full border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-800">
-          <RefreshCw className="size-4" />
+        <button aria-label="Refresh token balance" onClick={refresh}
+          className="grid size-10 place-items-center rounded-full border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-800">
+          <RefreshCw className={`size-4 ${spinning ? "animate-spin" : ""}`} />
         </button>
         <button aria-label="Notifications" className="grid size-10 place-items-center rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50">
           <Bell className="size-[18px]" />

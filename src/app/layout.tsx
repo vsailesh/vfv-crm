@@ -9,8 +9,12 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "VFV CRM",
+  title: {
+    default: "VFV CRM",
+    template: "%s · VFV CRM",
+  },
   description: "CRM for Veda For Vaidyas — pipeline, customers, follow-ups, analytics",
+  applicationName: "VFV CRM",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

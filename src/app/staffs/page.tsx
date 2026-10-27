@@ -14,6 +14,7 @@ const TONE = ["bg-teal-100 text-teal-700", "bg-sky-100 text-sky-700", "bg-rose-1
 
 export default function StaffsPage() {
   const [rows, setRows] = useState<Staff[]>([]);
+  const [menu, setMenu] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", phone: "", role: "Sales Exec", department: "Sales" });
   const [role, setRole] = useState("All Roles");
@@ -131,10 +132,29 @@ export default function StaffsPage() {
                     <Badge variant={s.status === "active" ? "active" : "contacted"}>{s.status}</Badge>
                   </td>
                   <td className="px-4 py-4 text-gray-500">{lastActive(s.lastActiveAt)}</td>
-                  <td className="px-4 py-4">
-                    <button className="grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+                  <td className="relative px-4 py-4">
+                    <button onClick={() => setMenu(menu === s.id ? null : s.id)} aria-label={`Actions for ${s.name}`}
+                      className="grid size-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700">
                       <MoreHorizontal className="size-4" />
                     </button>
+                    {menu === s.id && (
+                      <div className="absolute right-4 top-12 z-20 w-44 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
+                        <button
+                          onClick={() => { navigator.clipboard?.writeText(s.email).catch(() => {}); setMenu(null); }}
+                          className="block w-full px-4 py-2 text-left text-sm hover:bg-gray-50">
+                          Copy email
+                        </button>
+                        <button
+                          onClick={async () => {
+                            await fetch("/api/staff", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id, isActive: s.status === "active" ? 0 : 1 }) });
+                            setMenu(null);
+                            load();
+                          }}
+                          className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50">
+                          {s.status === "active" ? "Deactivate" : "Reactivate"}
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

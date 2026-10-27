@@ -12,12 +12,12 @@ const CARDS = [
   {
     eyebrow: "Google My Business", title: "Win more 5-star reviews.",
     desc: "Connect to start managing reviews.", status: "Disconnected", ok: false,
-    icon: MapPin, tile: "bg-gray-100 text-gray-600", href: "/dashboard",
+    icon: MapPin, tile: "bg-gray-100 text-gray-600", href: "/channels/google-my-business",
   },
   {
     eyebrow: "QR Studio", title: "Scan once, connect forever.",
     desc: "Bridge the offline-to-online gap instantly.", status: "Active", ok: true,
-    icon: QrCode, tile: "bg-indigo-100 text-indigo-600", href: "/dashboard",
+    icon: QrCode, tile: "bg-indigo-100 text-indigo-600", href: "/tools/qr-studio",
   },
   {
     eyebrow: "Unified Inbox", title: "No message left behind.",
@@ -32,7 +32,7 @@ const CARDS = [
   {
     eyebrow: "Plan & Billing", title: "Full power, no limits.",
     desc: "Free Plan · upgrade anytime.", status: "Active", ok: true,
-    icon: CreditCard, tile: "bg-emerald-100 text-emerald-800", href: "/dashboard",
+    icon: CreditCard, tile: "bg-emerald-100 text-emerald-800", href: "/account/billing",
   },
 ];
 

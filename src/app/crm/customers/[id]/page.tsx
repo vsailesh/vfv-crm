@@ -1,5 +1,13 @@
 import { Suspense } from "react";
+import type { Metadata } from "next";
+import db from "@/lib/db";
 import CustomerDetail from "./detail";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const row = db.prepare("SELECT name FROM customers WHERE id = ?").get(id) as { name: string } | undefined;
+  return { title: row?.name ?? "Customer" };
+}
 
 export default function Page({ params }: { params: Promise<{ id: string }> }) {
   return (
