@@ -34,7 +34,16 @@ const NAV: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Channels",
     items: [
-      { href: "/channels/whatsapp", label: "WhatsApp", icon: MessageCircle },
+      {
+        label: "WhatsApp", icon: MessageCircle, children: [
+          { href: "/channels/whatsapp", label: "Overview" },
+          { href: "/channels/whatsapp/templates", label: "Templates" },
+          { href: "/channels/whatsapp/campaigns", label: "Campaigns" },
+          { href: "/channels/whatsapp/scheduler", label: "Scheduler" },
+          { href: "/channels/whatsapp/chatbot", label: "Chatbot" },
+          { href: "/channels/whatsapp/settings", label: "Settings" },
+        ],
+      },
       { href: "/channels/google-my-business", label: "Google My Business", icon: MapPin },
     ],
   },
@@ -60,8 +69,10 @@ function useDismiss(onClose: () => void) {
 export function Sidebar() {
   const path = usePathname();
   const router = useRouter();
-  const crmOpen = path?.startsWith("/crm");
-  const [open, setOpen] = useState(crmOpen ?? true);
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({
+    CRM: path?.startsWith("/crm") ?? true,
+    WhatsApp: path?.startsWith("/channels/whatsapp") ?? true,
+  });
   const [collapsed, setCollapsed] = useState(false);
   const [acctOpen, setAcctOpen] = useState(false);
   const [me, setMe] = useState<{ id: string; name: string; role: string } | null>(null);
@@ -111,14 +122,14 @@ export function Sidebar() {
                 "children" in item && item.children ? (
                   <div key={item.label}>
                     <button
-                      onClick={() => setOpen(!open)}
+                      onClick={() => setOpenMap((m) => ({ ...m, [item.label]: !(m[item.label] ?? true) }))}
                       className="flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm text-white/75 transition-colors hover:bg-white/5 hover:text-white"
                     >
                       <item.icon className="size-[18px]" />
                       <span className={`flex-1 text-left ${collapsed ? "hidden" : ""}`}>{item.label}</span>
-                      <ChevronDown className={`size-4 transition-transform ${collapsed ? "hidden" : open ? "rotate-0" : "-rotate-90"}`} />
+                      <ChevronDown className={`size-4 transition-transform ${collapsed ? "hidden" : openMap[item.label] ?? true ? "rotate-0" : "-rotate-90"}`} />
                     </button>
-                    {open && !collapsed && (
+                    {(openMap[item.label] ?? true) && !collapsed && (
                       <div className="mt-1 space-y-1 pl-6">
                         {item.children.map((c) => {
                           const active = path === c.href;

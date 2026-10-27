@@ -125,6 +125,30 @@ CREATE TABLE IF NOT EXISTS campaigns (
   template TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued', -- queued | sent
   recipientCount INTEGER NOT NULL DEFAULT 0,
+  scheduledAt TEXT,
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wa_templates (
+  id TEXT PRIMARY KEY,
+  metaTemplateId TEXT NOT NULL,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'marketing', -- marketing | utility | authentication
+  status TEXT NOT NULL DEFAULT 'approved',    -- approved | pending | rejected
+  language TEXT NOT NULL DEFAULT 'en_GB',
+  body TEXT NOT NULL DEFAULT '',
+  createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wa_bots (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  isActive INTEGER NOT NULL DEFAULT 0,
+  isDefault INTEGER NOT NULL DEFAULT 0,
+  sessions INTEGER NOT NULL DEFAULT 0,
+  completed INTEGER NOT NULL DEFAULT 0,
+  dropoffs INTEGER NOT NULL DEFAULT 0,
   createdAt TEXT NOT NULL
 );
 
@@ -297,8 +321,8 @@ function seedInner() {
   );
 
   // campaigns sample
-  db.prepare("INSERT INTO campaigns (id, segmentId, name, template, status, recipientCount, createdAt) VALUES (?,?,?,?,?,?,?)").run(
-    "cmp_0", "seg_0", "Panchakarma intro", "Namaste {{name}}, our panchakarma consultation slots are open this week. Reply to book.", "sent", 4, iso(20 * day)
+  db.prepare("INSERT INTO campaigns (id, segmentId, name, template, status, recipientCount, scheduledAt, createdAt) VALUES (?,?,?,?,?,?,?,?)").run(
+    "cmp_0", "seg_0", "Panchakarma intro", "Namaste {{name}}, our panchakarma consultation slots are open this week. Reply to book.", "sent", 4, iso(20 * day), iso(21 * day)
   );
 
   // follow-ups sample
@@ -324,6 +348,25 @@ function seedInner() {
   insQr.run("qr_1", "dwlfl7k2", "Diwali Flyer", "whatsapp",
     "https://wa.me/919964559178?text=Hi%2C%20I%20scanned%20your%20Diwali%20flyer%20QR%20and%20want%20to%20book%21",
     "Hi, I scanned your Diwali flyer QR and want to book!", "diwali-2026", "paused", 0, 0, 0, null, iso(6 * day));
+
+  // WhatsApp templates (mirrors the real Meta-approved list)
+  const tplSeed: Array<[string, string, string, string, string]> = [
+    ["1550868653395594", "banner_08", "marketing", "approved", "Namaste {{1}}, new this month at Veda For Vaidyas — reply INTRO for details."],
+    ["963662742837475", "banner_6", "marketing", "approved", "{{1}}, your wellness check-in is due. Reply BOOK to pick a slot."],
+    ["1089590267387433", "300_selction_", "marketing", "approved", "Hi {{1}}, explore our curated ₹300 selection this week."],
+    ["2011447382910567", "lead_nurture_1", "utility", "approved", "Thanks for reaching out, {{1}}! Our team will call you within 24 hours."],
+    ["3015528471049924", "appt_reminder", "utility", "approved", "Reminder: your consultation is confirmed for {{1}}. Reply RESCHEDULE if needed."],
+    ["4026639592108835", "followup_offer", "marketing", "pending", "Special for {{1}}: 10% off your first panchakarma session this month."],
+    ["5037751603267746", "otp_login", "authentication", "approved", "Your Veda For Vaidyas code is {{1}}. It expires in 5 minutes."],
+  ];
+  const insTpl = db.prepare("INSERT INTO wa_templates (id, metaTemplateId, name, category, status, language, body, createdAt) VALUES (?,?,?,?,?,?, 'en_GB', ?)");
+  tplSeed.forEach(([metaId, name, cat, st, body], i) =>
+    insTpl.run(`wtpl_${i}`, metaId, name, cat, st, body, iso((26 - i) * day)));
+
+  // WhatsApp chatbots
+  db.prepare("INSERT INTO wa_bots (id, name, version, isActive, isDefault, sessions, completed, dropoffs, createdAt) VALUES (?,?,?,?,?,?,?,?,?)").run(
+    "bot_0", "welcome", 3, 0, 1, 119, 117, 2, iso(15 * day)
+  );
 
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('aiTokens', '100000')").run();
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('whatsappPhone', '919964559178')").run();

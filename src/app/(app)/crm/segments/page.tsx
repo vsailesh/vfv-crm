@@ -23,6 +23,7 @@ export default function SegmentsPage() {
   const [composer, setComposer] = useState<Segment | null>(null);
   const [cName, setCName] = useState("");
   const [cTpl, setCtpl] = useState("Namaste {{name}}, ");
+  const [cWhen, setCWhen] = useState("");
   const [cBusy, setCBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -60,12 +61,13 @@ export default function SegmentsPage() {
     await fetch("/api/campaigns", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ segmentId: composer.id, name: cName.trim(), template: cTpl.trim() }),
+      body: JSON.stringify({ segmentId: composer.id, name: cName.trim(), template: cTpl.trim(), scheduledAt: cWhen || undefined }),
     });
     setCBusy(false);
     setComposer(null);
     setCName("");
     setCtpl("Namaste {{name}}, ");
+    setCWhen("");
     load();
   }
 
@@ -220,6 +222,10 @@ export default function SegmentsPage() {
             <p className="mt-1.5 text-xs text-gray-400">
               Use <code className="rounded bg-gray-100 px-1 font-mono">{"{{name}}"}</code> to personalize with each customer’s name.
             </p>
+            <label className="mb-1 mt-4 block text-xs font-semibold text-gray-600">Schedule (optional)</label>
+            <input type="datetime-local" value={cWhen} onChange={(e) => setCWhen(e.target.value)}
+              className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-lime" />
+            <p className="mt-1 text-xs text-gray-400">Leave empty to queue for manual launch from the WhatsApp Scheduler.</p>
             <div className="mt-5 flex gap-3">
               <button onClick={() => setComposer(null)} className="h-10 flex-1 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50">Cancel</button>
               <button onClick={launchCampaign} disabled={!cName.trim() || !cTpl.trim() || cBusy}

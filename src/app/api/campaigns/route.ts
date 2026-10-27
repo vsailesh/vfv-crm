@@ -5,11 +5,11 @@ import { ok, bad } from "@/lib/api";
 // GET /api/campaigns — list with segment names
 export async function GET() {
   const rows = db.prepare(
-    `SELECT m.id, m.name, m.template, m.status, m.recipientCount, m.createdAt,
+    `SELECT m.id, m.name, m.template, m.status, m.recipientCount, m.scheduledAt, m.createdAt,
             s.name AS segmentName
      FROM campaigns m
      LEFT JOIN segments s ON s.id = m.segmentId
-     ORDER BY m.createdAt DESC`
+     ORDER BY COALESCE(m.scheduledAt, m.createdAt) DESC`
   ).all();
   return ok({ data: rows });
 }
@@ -17,7 +17,7 @@ export async function GET() {
 // POST /api/campaigns — queue a campaign against a segment
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
-  const { segmentId, name, template } = b ?? {};
+  const { segmentId, name, template, scheduledAt } = b ?? {};
   if (!segmentId || !name || !template) return bad("segmentId, name and template are required");
 
   const seg = db.prepare("SELECT id, customerIds FROM segments WHERE id = ?").get(segmentId) as
@@ -30,8 +30,10 @@ export async function POST(req: NextRequest) {
 
   const id = `cmp_${Date.now().toString(36)}`;
   db.prepare(
-    "INSERT INTO campaigns (id, segmentId, name, template, status, recipientCount, createdAt) VALUES (?,?,?,?,?,?,?)"
-  ).run(id, segmentId, name, template, "queued", count, new Date().toISOString());
+    "INSERT INTO campaigns (id, segmentId, name, template, status, recipientCount, scheduledAt, createdAt) VALUES (?,?,?,?,?,?,?,?)"
+  ).run(id, segmentId, name, template, "queued", count,
+    typeof scheduledAt === "string" && scheduledAt ? new Date(scheduledAt).toISOString() : null,
+    new Date().toISOString());
 
   return ok({ id, status: "queued", recipientCount: count });
 }
