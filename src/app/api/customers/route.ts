@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
     "prospect", b.source ?? "manual", b.stage ?? null, now, now);
   if (b.stage) {
     const lid = `lead_${Date.now().toString(36)}`;
-    db.prepare("INSERT INTO leads (id, customerId, status, source, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?)")
-      .run(lid, id, b.stage, b.source ?? "manual", JSON.stringify([{ status: b.stage, at: now }]), now, now);
+    db.prepare("INSERT INTO leads (id, customerId, status, source, value, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?)")
+      .run(lid, id, b.stage, b.source ?? "manual", Math.max(0, Math.round(Number(b.value) || 0)), JSON.stringify([{ status: b.stage, at: now }]), now, now);
   }
   return ok({ id });
 }

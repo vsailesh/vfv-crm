@@ -7,7 +7,7 @@ import { leadScore } from "@/lib/lead-score";
 const STAGE_KEYS = STAGES.map((s) => s.key);
 
 type LeadRow = {
-  id: string; status: string; source: string; noteCount: number; activityCount: number;
+  id: string; status: string; source: string; noteCount: number; activityCount: number; value: number;
   createdAt: string; updatedAt: string; customerId: string; fullName: string; phone: string;
   email: string | null; customerStatus: string; assignedToStaffName: string | null;
 };
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
   const total = (db.prepare(`SELECT COUNT(*) AS n FROM leads l JOIN customers c ON c.id = l.customerId${where}`).get(...params) as { n: number }).n;
   const rows = db.prepare(
-    `SELECT l.id, l.status, l.source, l.noteCount, l.activityCount, l.createdAt, l.updatedAt,
+    `SELECT l.id, l.status, l.source, l.noteCount, l.activityCount, l.value, l.createdAt, l.updatedAt,
             c.id AS customerId, c.name AS fullName, c.phone, c.email, c.status AS customerStatus,
             s.name AS assignedToStaffName
      FROM leads l
@@ -53,11 +53,18 @@ export async function GET(req: NextRequest) {
 // PATCH /api/leads — {id, status} moves a lead between stages (kanban drag)
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  if (!body?.id || !body?.status) return bad("id and status required");
-  if (!STAGE_KEYS.includes(body.status)) return bad(`status must be one of: ${STAGE_KEYS.join(", ")}`);
+  if (!body?.id || (!body?.status && body?.value === undefined)) return bad("id with status or value required");
+  if (body.status && !STAGE_KEYS.includes(body.status)) return bad(`status must be one of: ${STAGE_KEYS.join(", ")}`);
 
   const lead = db.prepare("SELECT id, status FROM leads WHERE id = ?").get(body.id) as { id: string; status: string } | undefined;
   if (!lead) return bad("lead not found", 404);
+
+  // deal-value-only update: {id, value} without a stage change
+  if (body.value !== undefined && !body.status) {
+    const v = Math.max(0, Math.round(Number(body.value) || 0));
+    db.prepare("UPDATE leads SET value = ?, updatedAt = ? WHERE id = ?").run(v, new Date().toISOString(), body.id);
+    return ok({ id: body.id, value: v });
+  }
 
   const now = new Date().toISOString();
   const hist = JSON.parse((db.prepare("SELECT statusHistory FROM leads WHERE id = ?").get(body.id) as { statusHistory: string }).statusHistory || "[]");
@@ -86,8 +93,8 @@ export async function POST(req: NextRequest) {
      VALUES (?,?,?,?,?,?,?,?,?,?, 'prospect', 'manual', '[]', (SELECT id FROM staff WHERE isAvailable=1 ORDER BY currentActiveLeads LIMIT 1), ?, 0, 0, ?, ?)`
   ).run(cid, `BZ-C-${Date.now()}`, b.name, b.phone, b.email ?? null, b.address ?? null, b.city ?? null, b.state ?? null, b.pincode ?? null, b.businessName ?? null, stage, now, now);
 
-  db.prepare("INSERT INTO leads (id, customerId, status, source, assignedStaffId, noteCount, activityCount, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,0,0,?,?,?)")
-    .run(lid, cid, stage, "manual", null, JSON.stringify([{ status: stage, at: now }]), now, now);
+  db.prepare("INSERT INTO leads (id, customerId, status, source, assignedStaffId, noteCount, activityCount, value, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,0,0,?,?,?)")
+    .run(lid, cid, stage, "manual", null, Math.max(0, Math.round(Number(b.value) || 0)), JSON.stringify([{ status: stage, at: now }]), now, now);
   db.prepare("UPDATE customers SET leadStage=? WHERE id=?").run(stage, cid);
   return ok({ leadId: lid, customerId: cid });
 }

@@ -19,7 +19,11 @@ type Lead = {
   customerId: string;
   assignedToStaffName: string | null;
   score?: number;
+  value?: number;
 };
+
+const inr = (n: number) =>
+  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0, notation: n >= 100000 ? "compact" : "standard" }).format(n);
 
 const PAGE_SIZE = 40;
 
@@ -106,6 +110,7 @@ export default function PipelinePage() {
           </div>
           <div className="flex items-center gap-3">
             <StatPill label="Total Leads" value={total} />
+            <StatPill label="Pipeline Value" value={inr(leads.reduce((a, l) => a + (l.value ?? 0), 0))} />
             <button
               onClick={() => setShowNew(true)}
               className="flex h-10 items-center gap-2 rounded-xl bg-lime px-5 text-sm font-semibold text-forest-950 hover:bg-lime-hover"
@@ -142,7 +147,7 @@ export default function PipelinePage() {
           {STAGES.map((stage) => {
             const items = byStage.get(stage.key) ?? [];
             return (
-              <Column key={stage.key} stage={stage} count={items.length}>
+              <Column key={stage.key} stage={stage} count={items.length} value={items.reduce((a, l) => a + (l.value ?? 0), 0)}>
                 {items.map((l) => (
                   <LeadCard key={l.id} lead={l} />
                 ))}
@@ -217,8 +222,8 @@ function ScoreChip({ score }: { score: number }) {
 }
 
 function Column({
-  stage, count, children,
-}: { stage: (typeof STAGES)[number]; count: number; children: React.ReactNode }) {
+  stage, count, value, children,
+}: { stage: (typeof STAGES)[number]; count: number; value: number; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.key });
   return (
     <div
@@ -236,6 +241,9 @@ function Column({
         </div>
         <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-bold text-gray-600">{count}</span>
       </div>
+      {value > 0 && (
+        <p className="-mt-1 px-4 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">{inr(value)} in play</p>
+      )}
       <div className="scroll-thin max-h-[60vh] flex-1 space-y-2.5 overflow-y-auto px-3 pb-3">{children}</div>
     </div>
   );
@@ -273,6 +281,10 @@ function LeadCard({ lead }: { lead: Lead }) {
         {lead.assignedToStaffName ? (
           <span className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{lead.assignedToStaffName}</span>
         ) : <span />}
+        <span className="flex items-center gap-2">
+          {typeof lead.value === "number" && lead.value > 0 && (
+            <span className="text-xs font-bold text-forest-900">{inr(lead.value)}</span>
+          )}
         <Link
           href={`/crm/customers/${lead.customerId}`}
           onClick={(e) => e.stopPropagation()}
@@ -281,13 +293,14 @@ function LeadCard({ lead }: { lead: Lead }) {
         >
           View <ChevronRight className="size-3" />
         </Link>
+        </span>
       </div>
     </div>
   );
 }
 
 function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "", businessName: "", stage: "new" });
+  const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "", businessName: "", stage: "new", value: "" });
   const [busy, setBusy] = useState(false);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm({ ...form, [k]: e.target.value });
@@ -309,7 +322,7 @@ function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Add New Customer</h2>
+          <h2 className="text-lg font-bold">Add New Lead</h2>
           <button onClick={onClose} className="text-xl leading-none text-gray-400 hover:text-gray-700">×</button>
         </div>
         <div className="space-y-3 text-sm">
@@ -333,6 +346,7 @@ function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
               {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
           </div>
+          <Field label="Deal value (₹)" value={form.value} onChange={set("value")} placeholder="e.g. 25000" />
         </div>
         <div className="mt-5 flex gap-3">
           <button onClick={onClose} className="h-10 flex-1 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50">Cancel</button>

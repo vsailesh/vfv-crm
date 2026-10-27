@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS leads (
   assignedStaffId TEXT REFERENCES staff(id),
   noteCount INTEGER NOT NULL DEFAULT 0,
   activityCount INTEGER NOT NULL DEFAULT 0,
+  value INTEGER NOT NULL DEFAULT 0,        -- deal value in ₹
   statusHistory TEXT NOT NULL DEFAULT '[]',-- JSON [{status,at}]
   createdAt TEXT NOT NULL,
   updatedAt TEXT NOT NULL
@@ -217,6 +218,10 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `);
 
+// Additive migrations for existing installs — CREATE IF NOT EXISTS won't add columns.
+const leadCols = (db.prepare("PRAGMA table_info(leads)").all() as Array<{ name: string }>).map((c) => c.name);
+if (!leadCols.includes("value")) db.exec("ALTER TABLE leads ADD COLUMN value INTEGER NOT NULL DEFAULT 0");
+
 export { STAGES } from "./stages";
 export type { StageKey } from "./stages";
 import { STAGES } from "./stages";
@@ -288,8 +293,13 @@ function seedInner() {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   );
   const insLead = db.prepare(
-    `INSERT INTO leads (id, customerId, status, source, assignedStaffId, noteCount, activityCount, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO leads (id, customerId, status, source, assignedStaffId, noteCount, activityCount, value, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
   );
+  // ₹ deal value by stage — consultation → panchakarma → course price bands
+  const dealValue: Record<string, number> = {
+    new: 1500, contacted: 3000, engaged: 6000, qualified: 12000,
+    negotiation: 25000, converted: 40000, on_hold: 8000, unresponsive: 1500, lost: 0, junk: 0,
+  };
 
   let ci = 0;
   const stagePlan: Array<[number, string]> = [
@@ -328,6 +338,7 @@ function seedInner() {
       const c = mkCustomer(nm || `Unknown ${nameIdx}`, ph, em, ci++, createdAgo);
       const lid = `lead_${leadIdx.toString(36)}`;
       insLead.run(lid, c.id, stage, c.src, c.staff, leadIdx % 4, leadIdx % 6,
+        (dealValue[stage] ?? 1500) + (leadIdx % 5) * 500,
         JSON.stringify([{ status: "new", at: iso(createdAgo) }]), iso(createdAgo), iso(Math.max(0, createdAgo - day)));
       db.prepare("UPDATE customers SET leadStage=? WHERE id=?").run(stage, c.id);
       customersWithLeads.push({ ...c, stage });
