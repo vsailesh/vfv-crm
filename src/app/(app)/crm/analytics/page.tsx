@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Sparkles, TrendingUp, AlertTriangle, Users, Target, Zap, Activity } from "lucide-react";
+import { Sparkles, TrendingUp, AlertTriangle, Users, Target, Zap, Activity, Calculator } from "lucide-react";
 import { Card, StatPill } from "@/components/ui";
 
 type Overview = {
@@ -22,14 +22,25 @@ type Overview = {
   alerts: Array<{ type: string; title: string; urgency?: string; description: string; cause?: string; actionLabel?: string; actionPath?: string }>;
 };
 
+type Forecast = {
+  pipeline: { byStage: Array<{ stage: string; label: string; fill: string; count: number; value: number; prob: number; weighted: number }>; pipelineValue: number; weightedValue: number };
+  won: { month: string; total: number; deals: number };
+  quota: { month: string; teamQuota: number; teamAttainmentPct: number; perStaff: Array<{ staffId: string; staffName: string; quota: number; won: number; attainmentPct: number }> };
+  trend: Array<{ month: string; label: string; won: number; deals: number }>;
+};
+
+const inr = (n: number) => `₹${n >= 100000 ? `${(n / 100000).toFixed(n % 100000 === 0 ? 0 : 1)}L` : n >= 1000 ? `${Math.round(n / 1000)}k` : n}`;
+
 const RANGES = ["7d", "30d", "90d"] as const;
 
 export default function AnalyticsPage() {
   const [data, setData] = useState<Overview | null>(null);
+  const [forecast, setForecast] = useState<Forecast | null>(null);
   const [range, setRange] = useState<(typeof RANGES)[number]>("30d");
 
   useEffect(() => {
     fetch(`/api/analytics?range=${range}`).then((r) => r.json()).then((j) => setData(j.data));
+    fetch("/api/analytics/forecast").then((r) => r.json()).then((j) => setForecast(j.data));
   }, [range]);
 
   if (!data) return <div className="p-8 text-sm text-gray-500">Crunching numbers…</div>;
@@ -88,7 +99,95 @@ export default function AnalyticsPage() {
         <Kpi icon={<Zap className="size-4" />} label="Avg Response" value={`${Math.floor(data.overview.avgResponseTimeMinutes / 60)}h ${data.overview.avgResponseTimeMinutes % 60}m`} sub="first reply" />
       </section>
 
-      {/* health gauge + pipeline story */}
+      {/* revenue forecast: weighted pipeline + quota attainment */}
+      {forecast && (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <Card className="p-7">
+            <div className="mb-1 flex items-center gap-2">
+              <Calculator className="size-5 text-gray-400" />
+              <h2 className="text-lg font-bold">Weighted Forecast</h2>
+            </div>
+            <p className="mb-5 text-xs text-gray-400">Open deals × stage win-probability. What the funnel realistically closes.</p>
+            <div className="mb-6 flex flex-wrap items-end gap-x-8 gap-y-2">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Expected revenue</p>
+                <p className="text-4xl font-bold text-forest-950">{inr(forecast.pipeline.weightedValue)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Open pipeline</p>
+                <p className="text-2xl font-bold text-gray-400">{inr(forecast.pipeline.pipelineValue)}</p>
+              </div>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                  <th className="pb-2 pr-3">Stage</th>
+                  <th className="pb-2 pr-3 text-right">Deals</th>
+                  <th className="pb-2 pr-3 text-right">Value</th>
+                  <th className="pb-2 pr-3 text-right">Prob</th>
+                  <th className="pb-2 text-right">Weighted</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {forecast.pipeline.byStage.filter((s) => s.count > 0).map((s) => (
+                  <tr key={s.stage}>
+                    <td className="py-2.5 pr-3">
+                      <span className="flex items-center gap-2">
+                        <span className="size-2 rounded-full" style={{ backgroundColor: s.fill }} />
+                        <span className="font-medium">{s.label}</span>
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-3 text-right tabular-nums">{s.count}</td>
+                    <td className="py-2.5 pr-3 text-right tabular-nums text-gray-500">{inr(s.value)}</td>
+                    <td className="py-2.5 pr-3 text-right tabular-nums text-gray-500">{s.prob}%</td>
+                    <td className="py-2.5 text-right font-bold tabular-nums">{inr(s.weighted)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+
+          <div className="space-y-4">
+            <Card className="p-7">
+              <div className="mb-5 flex items-baseline justify-between">
+                <h2 className="text-lg font-bold">Quota Attainment — {new Date().toLocaleDateString("en-IN", { month: "long" })}</h2>
+                <span className="text-sm text-gray-500">won {inr(forecast.won.total)} / {inr(forecast.quota.teamQuota)} team</span>
+              </div>
+              <ul className="space-y-4">
+                {forecast.quota.perStaff.map((q) => (
+                  <li key={q.staffId}>
+                    <div className="mb-1.5 flex items-center justify-between text-sm">
+                      <span className="font-semibold">{q.staffName}</span>
+                      <span className="tabular-nums text-gray-500">{inr(q.won)} / {inr(q.quota)}</span>
+                    </div>
+                    <div className="relative h-3 overflow-hidden rounded-full bg-gray-100">
+                      <div className={`h-full rounded-full ${q.attainmentPct >= 100 ? "bg-lime" : q.attainmentPct >= 50 ? "bg-amber-400" : "bg-red-400"}`}
+                        style={{ width: `${Math.min(100, q.attainmentPct)}%` }} />
+                    </div>
+                    <p className="mt-1 text-right text-xs font-bold tabular-nums text-gray-500">{q.attainmentPct}%{q.attainmentPct > 100 ? " 🎉" : ""}</p>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+
+            <Card className="p-7">
+              <h2 className="mb-5 text-lg font-bold">Won Revenue — last 5 months</h2>
+              <div className="flex h-36 items-end gap-3">
+                {forecast.trend.map((t) => {
+                  const max = Math.max(1, ...forecast.trend.map((x) => x.won));
+                  return (
+                    <div key={t.month} className="flex flex-1 flex-col items-center gap-1.5" title={`${t.month}: ${inr(t.won)} (${t.deals} deals)`}>
+                      <span className="text-[10px] font-bold tabular-nums text-gray-500">{t.won > 0 ? inr(t.won) : ""}</span>
+                      <div className="w-full rounded-t-lg bg-forest-950/85" style={{ height: `${Math.max(t.won > 0 ? 8 : 2, (t.won / max) * 100)}%`, opacity: t.won > 0 ? 1 : 0.15 }} />
+                      <span className="text-[11px] font-semibold uppercase text-gray-400">{t.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          </div>
+        </section>
+      )}
       <section className="grid gap-4 lg:grid-cols-[1fr_2fr]">
         <Card className="flex flex-col items-center justify-center p-8">
           <p className="mb-6 text-[11px] font-bold uppercase tracking-wider text-gray-400">Ops Health Score</p>

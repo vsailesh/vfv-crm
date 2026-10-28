@@ -242,6 +242,14 @@ const leadCols = (db.prepare("PRAGMA table_info(leads)").all() as Array<{ name: 
 if (!leadCols.includes("value")) db.exec("ALTER TABLE leads ADD COLUMN value INTEGER NOT NULL DEFAULT 0");
 const segCols = (db.prepare("PRAGMA table_info(segments)").all() as Array<{ name: string }>).map((c) => c.name);
 if (!segCols.includes("rules")) db.exec("ALTER TABLE segments ADD COLUMN rules TEXT");
+const staffCols = (db.prepare("PRAGMA table_info(staff)").all() as Array<{ name: string }>).map((c) => c.name);
+if (!staffCols.includes("quotaMonthly")) {
+  db.exec("ALTER TABLE staff ADD COLUMN quotaMonthly INTEGER NOT NULL DEFAULT 0");
+  // backfill quotas for existing installs (₹/month won-revenue targets)
+  db.exec("UPDATE staff SET quotaMonthly = 100000 WHERE id = 'stf1'"); // Naveen
+  db.exec("UPDATE staff SET quotaMonthly = 80000 WHERE id = 'stf2'");  // Sreya
+  db.exec("UPDATE staff SET quotaMonthly = 150000 WHERE id = 'stf3'"); // Sailesh
+}
 
 export { STAGES } from "./stages";
 export type { StageKey } from "./stages";
@@ -263,13 +271,14 @@ function seedInner() {
   const hash = (email: string) => crypto.createHash("sha256").update(`${email.toLowerCase()}:veda123`).digest("hex");
   const ALL_PAGES = ["inbox", "crm:customers", "crm:pipeline", "crm:segments", "wa:templates", "wa:campaigns", "wa:chatbot", "gmb", "qr"];
   const insStaff = db.prepare(
-    "INSERT INTO staff (id, staffCode, name, email, phone, role, department, designation, passwordHash, isActive, isAvailable, currentActiveLeads, maxActiveLeads, permissions, lastSeenAt, createdAt) VALUES (?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?)"
+    "INSERT INTO staff (id, staffCode, name, email, phone, role, department, designation, passwordHash, isActive, isAvailable, currentActiveLeads, maxActiveLeads, permissions, lastSeenAt, createdAt, quotaMonthly) VALUES (?,?,?,?,?,?,?,?,?,1,1,?,?,?,?,?,?,?)"
   );
   const waLoad: Record<string, [number, number]> = { stf1: [2, 5], stf2: [1, 0], stf3: [0, 0] };
+  const quota: Record<string, number> = { stf1: 100000, stf2: 80000, stf3: 150000 };
   for (const s of staffSeed) {
     const perms = s.role === "admin" ? [...ALL_PAGES, "crm:followups", "crm:analytics", "staff"] : ALL_PAGES;
     const [used, max] = waLoad[s.id] ?? [0, 0];
-    insStaff.run(s.id, s.code, s.name, s.email, s.phone, s.role, s.dept, s.desc, hash(s.email), used, max, JSON.stringify(perms), iso(3 * day), iso(28 * day));
+    insStaff.run(s.id, s.code, s.name, s.email, s.phone, s.role, s.dept, s.desc, hash(s.email), used, max, JSON.stringify(perms), iso(3 * day), iso(28 * day), quota[s.id] ?? 0);
   }
 
   // Real VFV sample contacts (from capture) + synthetic fill
@@ -438,13 +447,20 @@ function seedInner() {
     [1, "followup", "Sreya scheduled a follow-up: Intro call follow-up", 2],
     [4, "stage", "Sreya moved lead from qualified to negotiation", 5],
     [7, "note", "Sreya added a note: asked for student discount", 2],
-    [2, "stage", "Sailesh moved lead from negotiation to converted", 3],
+    [2, "stage", "Moved negotiation → contacted", 3],
     [2, "note", "Sailesh added a note: closed, onboarded to basic plan", 3],
     [5, "assign", "Assigned to Sreya (round robin)", 7],
     [9, "stage", "Naveen moved lead from new to contacted", 2],
   ];
   seedActs.forEach(([custIdx, kind, text, ago], i) =>
     insA.run(`act_s${i}`, customersWithLeads[custIdx].id, kind, text, iso(ago * day)));
+
+  // conversion activities for the 4 won deals — spread across months so the
+  // forecast trend chart has history (won attribution reads these rows)
+  const wonIdx = [52, 53, 54, 55]; // converted leads in customersWithLeads order
+  const wonAgoDays = [3, 34, 65, 96];
+  wonIdx.forEach((custIdx, i) =>
+    insA.run(`act_won${i}`, customersWithLeads[custIdx].id, "stage", "Moved negotiation → converted", iso(wonAgoDays[i] * day)));
 
   // QR codes sample
   const insQr = db.prepare(
