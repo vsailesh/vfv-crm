@@ -72,6 +72,10 @@ export async function PATCH(req: NextRequest) {
   hist.push({ status: body.status, at: now });
 
   db.prepare("UPDATE leads SET status = ?, statusHistory = ?, updatedAt = ? WHERE id = ?").run(body.status, JSON.stringify(hist), now, body.id);
+  // conversion payload: won amount rides along with the stage move
+  if (body.value !== undefined) {
+    db.prepare("UPDATE leads SET value = ? WHERE id = ?").run(Math.max(0, Math.round(Number(body.value) || 0)), body.id);
+  }
   db.prepare("UPDATE customers SET leadStage = ?, updatedAt = ? WHERE id = (SELECT customerId FROM leads WHERE id = ?)").run(body.status, now, body.id);
   db.prepare("INSERT INTO activities (id, customerId, kind, text, createdAt) VALUES (?,?,?,?,?)").run(
     `act_${Date.now()}`, (db.prepare("SELECT customerId FROM leads WHERE id = ?").get(body.id) as { customerId: string }).customerId,

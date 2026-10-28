@@ -40,6 +40,8 @@ export default function PipelinePage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkTo, setBulkTo] = useState("");
+  // conversion flow — dropping on Converted opens a won-deal modal instead of moving directly
+  const [pendingConvert, setPendingConvert] = useState<{ ids: string[]; label: string } | null>(null);
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -85,13 +87,31 @@ export default function PipelinePage() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  async function moveLead(leadId: string, to: string) {
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: to } : l)));
+  async function moveLead(leadId: string, to: string, value?: number) {
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: to, ...(value !== undefined ? { value } : {}) } : l)));
     await fetch("/api/leads", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: leadId, status: to }),
+      body: JSON.stringify({ id: leadId, status: to, ...(value !== undefined ? { value } : {}) }),
     });
+  }
+
+  async function confirmConvert(amount: number, product: string, note: string) {
+    if (!pendingConvert) return;
+    const { ids } = pendingConvert;
+    setPendingConvert(null);
+    await Promise.all(ids.map((id) => moveLead(id, "converted", amount)));
+    // won note on each customer timeline
+    await Promise.all(ids.map(async (id) => {
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) return;
+      const text = `Won ${inr(amount)} — ${product}${note ? ` · ${note}` : ""}`;
+      await fetch("/api/notes", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: lead.customerId, body: text }),
+      }).catch(() => undefined);
+    }));
+    setUndo({ moves: [], to: "converted", label: `${pendingConvert.label} · won ${inr(amount)}` });
   }
 
   async function onDragEnd(e: DragEndEvent) {
@@ -100,6 +120,7 @@ export default function PipelinePage() {
     if (!col) return;
     const lead = leads.find((l) => l.id === leadId);
     if (!lead || lead.status === col) return;
+    if (col === "converted") { setPendingConvert({ ids: [leadId], label: lead.fullName }); return; }
     await moveLead(leadId, col);
     setUndo({ moves: [{ leadId, from: lead.status }], to: col, label: lead.fullName });
   }
@@ -109,10 +130,16 @@ export default function PipelinePage() {
     const moves = leads
       .filter((l) => selected.has(l.id) && l.status !== bulkTo)
       .map((l) => ({ leadId: l.id, from: l.status }));
+    if (!moves.length) { setSelected(new Set()); setBulkTo(""); return; }
+    if (bulkTo === "converted") {
+      setPendingConvert({ ids: moves.map((m) => m.leadId), label: `${moves.length} leads` });
+      setSelected(new Set());
+      setBulkTo("");
+      return;
+    }
     const to = bulkTo;
     setSelected(new Set());
     setBulkTo("");
-    if (!moves.length) return;
     await Promise.all(moves.map((m) => moveLead(m.leadId, to)));
     const first = leads.find((l) => l.id === moves[0].leadId);
     setUndo({
@@ -248,12 +275,14 @@ export default function PipelinePage() {
               Moved <strong>{undo.label}</strong> to{" "}
               <strong>{STAGES.find((s) => s.key === undo.to)?.label ?? undo.to}</strong>
             </span>
-            <button
-              onClick={undoMove}
-              className="flex h-8 items-center gap-1.5 rounded-lg bg-lime px-3 text-xs font-bold text-forest-950 hover:bg-lime-hover"
-            >
-              <Undo2 className="size-3.5" /> Undo
-            </button>
+            {undo.moves.length > 0 && (
+              <button
+                onClick={undoMove}
+                className="flex h-8 items-center gap-1.5 rounded-lg bg-lime px-3 text-xs font-bold text-forest-950 hover:bg-lime-hover"
+              >
+                <Undo2 className="size-3.5" /> Undo
+              </button>
+            )}
             <button onClick={() => setUndo(null)} className="text-gray-400 hover:text-white">
               <X className="size-4" />
             </button>
@@ -262,6 +291,14 @@ export default function PipelinePage() {
       )}
 
       {showNew && <NewLeadModal onClose={() => setShowNew(false)} onCreated={load} />}
+      {pendingConvert && (
+        <ConvertModal
+          label={pendingConvert.label}
+          count={pendingConvert.ids.length}
+          onCancel={() => setPendingConvert(null)}
+          onConfirm={confirmConvert}
+        />
+      )}
       {loading && <p className="sr-only">Loading…</p>}
     </div>
   );
@@ -384,21 +421,81 @@ function LeadCard({ lead, selectMode, isSelected, onToggleSelect }: {
   );
 }
 
-function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "", businessName: "", stage: "new", value: "" });
+const CONVERT_PRODUCTS: Array<[string, number]> = [
+  ["Ayurvedic Consultation", 1500],
+  ["Panchakarma Package", 25000],
+  ["Foundation Course", 40000],
+  ["Advanced Practitioner Course", 60000],
+  ["Custom amount", 0],
+];
+
+function ConvertModal({ label, count, onCancel, onConfirm }: {
+  label: string; count: number;
+  onCancel: () => void; onConfirm: (amount: number, product: string, note: string) => void;
+}) {
+  const [product, setProduct] = useState(CONVERT_PRODUCTS[0][0]);
+  const [amount, setAmount] = useState(String(CONVERT_PRODUCTS[0][1]));
+  const [note, setNote] = useState("");
+  const amt = Math.max(0, Math.round(Number(amount) || 0));
+
+  function pickProduct(name: string) {
+    setProduct(name);
+    const preset = CONVERT_PRODUCTS.find(([n]) => n === name);
+    if (preset && preset[1] > 0) setAmount(String(preset[1]));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onCancel}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-bold">Mark as Won 🎉</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Recording <strong>{label}</strong> as converted — {count} {count === 1 ? "lead" : "leads"}.
+        </p>
+
+        <label className="mb-1 mt-4 block text-xs font-semibold text-gray-600">What did they buy?</label>
+        <select value={product} onChange={(e) => pickProduct(e.target.value)}
+          className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-lime">
+          {CONVERT_PRODUCTS.map(([name]) => <option key={name}>{name}</option>)}
+        </select>
+
+        <label className="mb-1 mt-3 block text-xs font-semibold text-gray-600">Won amount (₹)</label>
+        <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric"
+          className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-lime" />
+
+        <label className="mb-1 mt-3 block text-xs font-semibold text-gray-600">Closed-note (optional)</label>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
+          placeholder="e.g. Enrolled in Nov batch, paid via UPI"
+          className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-lime" />
+
+        <div className="mt-5 flex gap-3">
+          <button onClick={onCancel} className="h-10 flex-1 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50">Cancel</button>
+          <button onClick={() => onConfirm(amt, product, note)} disabled={amt <= 0}
+            className="h-10 flex-1 rounded-xl bg-lime text-sm font-semibold text-forest-950 hover:bg-lime-hover disabled:opacity-50">
+            {amt > 0 ? `Won ${inr(amt)}` : "Enter amount"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {  const [form, setForm] = useState({ name: "", phone: "", email: "", address: "", city: "", state: "", pincode: "", businessName: "", stage: "new", value: "" });
   const [busy, setBusy] = useState(false);
+  const [dupeWarn, setDupeWarn] = useState<{ id: string; name: string; phone: string } | null>(null);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm({ ...form, [k]: e.target.value });
 
   async function submit() {
     if (!form.name || !form.phone) return;
     setBusy(true);
-    await fetch("/api/customers", {
+    const res = await fetch("/api/customers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, source: "manual" }),
+      body: JSON.stringify({ ...form, value: form.value || undefined, source: "manual" }),
     });
+    const json = await res.json().catch(() => null);
     setBusy(false);
+    if (res.status === 409 && json?.data?.existing) { setDupeWarn(json.data.existing); return; }
     onCreated();
     onClose();
   }
@@ -406,6 +503,13 @@ function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        {dupeWarn && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <span>Phone already on file: <strong>{dupeWarn.name}</strong> ({dupeWarn.phone}).</span>
+            <Link href={`/crm/customers/${dupeWarn.id}`} onClick={onClose} className="font-bold underline">Open that record</Link>
+            <span className="text-amber-600">— or change the phone to save a new one.</span>
+          </div>
+        )}
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Add New Lead</h2>
           <button onClick={onClose} className="text-xl leading-none text-gray-400 hover:text-gray-700">×</button>
