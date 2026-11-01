@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 const AUTH_COOKIE = "vfv_session";
 const SECRET = process.env.VFV_AUTH_SECRET ?? "vfv-dev-secret-change-me";
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout", "/api/auth/me", "/r"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout", "/api/auth/me", "/r", "/api/webhook/lead"];
 
 function enc(s: string) {
   return new TextEncoder().encode(s);

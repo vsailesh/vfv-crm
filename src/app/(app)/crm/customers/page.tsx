@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Download, FileUp, Upload, Plus, Eye, Info, MessageCircle } from "lucide-react";
+import { Search, Download, FileUp, Upload, Plus, Eye, Info, MessageCircle, Globe } from "lucide-react";
 import { STAGES } from "@/lib/stages";
 import { Badge, Card, StatPill, SecondaryButton, PrimaryButton } from "@/components/ui";
 
@@ -37,6 +37,7 @@ export default function CustomersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showWebForm, setShowWebForm] = useState(false);
   const [assignTo, setAssignTo] = useState<string>("");
 
   const load = useCallback(async () => {
@@ -129,6 +130,7 @@ export default function CustomersPage() {
             <SecondaryButton onClick={exportSelected}><Download className="size-4 text-gray-500" /> Export</SecondaryButton>
             <SecondaryButton onClick={downloadTemplate}><FileUp className="size-4 text-gray-500" /> Template</SecondaryButton>
             <SecondaryButton onClick={() => setShowImport(true)}><Upload className="size-4 text-gray-500" /> Bulk Import</SecondaryButton>
+            <SecondaryButton onClick={() => setShowWebForm(true)}><Globe className="size-4 text-gray-500" /> Web Form</SecondaryButton>
             <PrimaryButton onClick={() => setShowNew(true)}><Plus className="size-4" /> New Customer</PrimaryButton>
           </div>
         </div>
@@ -258,6 +260,7 @@ export default function CustomersPage() {
 
       {showNew && <NewCustomerModal onClose={() => setShowNew(false)} onCreated={load} />}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={load} />}
+      {showWebForm && <WebFormModal onClose={() => setShowWebForm(false)} />}
     </div>
   );
 }
@@ -328,6 +331,52 @@ function NewCustomerModal({ onClose, onCreated }: { onClose: () => void; onCreat
           <button onClick={submit} disabled={busy} className="h-10 flex-1 rounded-xl bg-lime text-sm font-semibold text-forest-950 hover:bg-lime-hover disabled:opacity-50">
             {busy ? "Creating…" : "Create"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Web form capture -------------------------------------------------------
+function WebFormModal({ onClose }: { onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const snippet = `<form onsubmit="var f=this; event.preventDefault(); fetch('${typeof window !== "undefined" ? window.location.origin : ""}/api/webhook/lead', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:f.name.value, phone:f.phone.value, email:f.email.value, message:f.message.value, website:f.website.value})}).then(function(){ f.reset(); alert('Thanks — we will reach out shortly!'); })">
+  <input name="name" placeholder="Your name" required>
+  <input name="phone" placeholder="Phone number" required>
+  <input name="email" type="email" placeholder="Email (optional)">
+  <textarea name="message" placeholder="How can we help? (optional)"></textarea>
+  <input name="website" style="display:none" tabindex="-1" autocomplete="off">
+  <button type="submit">Request callback</button>
+</form>`;
+
+  async function copy() {
+    await navigator.clipboard.writeText(snippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-lg font-bold">Website Lead Form</h2>
+          <button onClick={onClose} className="text-xl leading-none text-gray-400 hover:text-gray-700">×</button>
+        </div>
+        <p className="mb-4 text-sm leading-relaxed text-gray-500">
+          Paste this into any page on your website. Every submission lands in the pipeline as a
+          <strong> website lead</strong> — auto-assigned to the least-loaded staff, nurture cadence starts the same day,
+          duplicate phones just ping the existing record instead of creating noise.
+        </p>
+        <div className="relative">
+          <button onClick={copy}
+            className="absolute right-2 top-2 z-10 rounded-lg bg-forest-950 px-3 py-1 text-xs font-bold text-lime hover:opacity-90">
+            {copied ? "Copied ✓" : "Copy"}
+          </button>
+          <pre className="max-h-72 overflow-auto rounded-xl bg-gray-950 p-4 text-xs leading-relaxed text-lime">{snippet}</pre>
+        </div>
+        <div className="mt-4 rounded-xl bg-gray-50 px-4 py-3 text-xs text-gray-500">
+          The hidden <code>website</code> field is a honeypot — bots fill it, their submissions are dropped silently.
+          Rate limited to 10 submissions/minute per IP.
         </div>
       </div>
     </div>

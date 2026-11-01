@@ -4,6 +4,7 @@ import { ok, bad } from "@/lib/api";
 import { STAGES } from "@/lib/db";
 import { leadScore } from "@/lib/lead-score";
 import { runStageAutomations, runWorkflows } from "@/lib/automation";
+import { pickOwner, bumpLoad, stageTransition } from "@/lib/assign";
 
 const STAGE_KEYS = STAGES.map((s) => s.key);
 
@@ -68,6 +69,9 @@ export async function PATCH(req: NextRequest) {
   }
 
   const now = new Date().toISOString();
+  // capacity accounting: open→closed releases the owner's slot, closed→open takes it back
+  const leadFull = db.prepare("SELECT customerId, status, assignedStaffId FROM leads WHERE id = ?").get(body.id) as { customerId: string; status: string; assignedStaffId: string | null };
+  stageTransition(leadFull.status, body.status, leadFull.assignedStaffId ?? (db.prepare("SELECT assignedStaffId FROM customers WHERE id = ?").get(leadFull.customerId) as { assignedStaffId: string | null }).assignedStaffId);
   const hist = JSON.parse((db.prepare("SELECT statusHistory FROM leads WHERE id = ?").get(body.id) as { statusHistory: string }).statusHistory || "[]");
   hist.push({ status: body.status, at: now });
 
@@ -94,15 +98,17 @@ export async function POST(req: NextRequest) {
   const cid = `cus_${Date.now().toString(36)}`;
   const lid = `lead_${Date.now().toString(36)}`;
   const stage = STAGE_KEYS.includes(b.stage) ? b.stage : "new";
+  const owner = pickOwner();
 
   db.prepare(
     `INSERT INTO customers (id, customerNumber, name, phone, email, address, city, state, pincode, businessName, status, source, tags, assignedStaffId, leadStage, unseen, engagement, createdAt, updatedAt)
-     VALUES (?,?,?,?,?,?,?,?,?,?, 'prospect', 'manual', '[]', (SELECT id FROM staff WHERE isAvailable=1 ORDER BY currentActiveLeads LIMIT 1), ?, 0, 0, ?, ?)`
-  ).run(cid, `BZ-C-${Date.now()}`, b.name, b.phone, b.email ?? null, b.address ?? null, b.city ?? null, b.state ?? null, b.pincode ?? null, b.businessName ?? null, stage, now, now);
+     VALUES (?,?,?,?,?,?,?,?,?,?, 'prospect', 'manual', '[]', ?, ?, 0, 0, ?, ?)`
+  ).run(cid, `BZ-C-${Date.now()}`, b.name, b.phone, b.email ?? null, b.address ?? null, b.city ?? null, b.state ?? null, b.pincode ?? null, b.businessName ?? null, owner, stage, now, now);
 
-  db.prepare("INSERT INTO leads (id, customerId, status, source, assignedStaffId, noteCount, activityCount, value, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,0,0,?,?,?)")
-    .run(lid, cid, stage, "manual", null, Math.max(0, Math.round(Number(b.value) || 0)), JSON.stringify([{ status: stage, at: now }]), now, now);
+  db.prepare("INSERT INTO leads (id, customerId, status, source, assignedStaffId, noteCount, activityCount, value, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,0,0,?,?,?,?)")
+    .run(lid, cid, stage, "manual", owner, Math.max(0, Math.round(Number(b.value) || 0)), JSON.stringify([{ status: stage, at: now }]), now, now);
   db.prepare("UPDATE customers SET leadStage=? WHERE id=?").run(stage, cid);
+  bumpLoad(owner, 1);
   runWorkflows("lead_created", cid);
-  return ok({ leadId: lid, customerId: cid });
+  return ok({ leadId: lid, customerId: cid, assignedTo: owner });
 }

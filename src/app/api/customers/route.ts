@@ -3,6 +3,7 @@ import db from "@/lib/db";
 import { ok, bad } from "@/lib/api";
 import { runStageAutomations, runWorkflows } from "@/lib/automation";
 import { normPhone } from "@/lib/phone";
+import { pickOwner, bumpLoad } from "@/lib/assign";
 
 // GET /api/customers?page&limit&q&status&source&staff&tab(active|archived-less: prospect|active)
 export async function GET(req: NextRequest) {
@@ -60,17 +61,19 @@ export async function POST(req: NextRequest) {
 
   const now = new Date().toISOString();
   const id = `cus_${Date.now().toString(36)}`;
+  const owner = b.stage ? pickOwner() : null;
   db.prepare(
     `INSERT INTO customers (id, customerNumber, name, phone, email, address, city, state, pincode, businessName, status, source, tags, assignedStaffId, leadStage, unseen, engagement, createdAt, updatedAt)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'[]',NULL,?,0,0,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,0,0,?,?)`
   ).run(id, `BZ-C-${Date.now()}`, b.name, b.phone, b.email ?? null, b.address ?? null, b.city ?? null, b.state ?? null, b.pincode ?? null, b.businessName ?? null,
-    "prospect", b.source ?? "manual", b.stage ?? null, now, now);
+    "prospect", b.source ?? "manual", owner, b.stage ?? null, now, now);
   if (b.stage) {
     const lid = `lead_${Date.now().toString(36)}`;
-    db.prepare("INSERT INTO leads (id, customerId, status, source, value, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?)")
-      .run(lid, id, b.stage, b.source ?? "manual", Math.max(0, Math.round(Number(b.value) || 0)), JSON.stringify([{ status: b.stage, at: now }]), now, now);
+    db.prepare("INSERT INTO leads (id, customerId, status, source, assignedStaffId, value, statusHistory, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?)")
+      .run(lid, id, b.stage, b.source ?? "manual", owner, Math.max(0, Math.round(Number(b.value) || 0)), JSON.stringify([{ status: b.stage, at: now }]), now, now);
+    bumpLoad(owner, 1);
     runWorkflows("lead_created", id);
     runStageAutomations(b.stage, id);
   }
-  return ok({ id });
+  return ok({ id, assignedTo: owner });
 }

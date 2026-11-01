@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import db from "@/lib/db";
 import { ok, bad } from "@/lib/api";
 import { normPhone } from "@/lib/phone";
+import { pickOwner, bumpLoad } from "@/lib/assign";
 
 // POST /api/customers/import — {rows: [{name, phone, email, city, state, businessName, stage, value}]}
 // Bulk CSV import. Duplicate phones (last-10-digits) and rows missing name/phone
@@ -25,11 +26,11 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString();
   const insCustomer = db.prepare(
     `INSERT INTO customers (id, customerNumber, name, phone, email, address, city, state, pincode, businessName, status, source, tags, assignedStaffId, leadStage, unseen, engagement, createdAt, updatedAt)
-     VALUES (?,?,?,?,?,?,?,NULL,NULL,?,?, 'manual', '[]', NULL, ?, 0, 0, ?, ?)`
+     VALUES (?,?,?,?,?,?,?,NULL,NULL,?,?, 'manual', '[]', ?, ?, 0, 0, ?, ?)`
   );
   const insLead = db.prepare(
     `INSERT INTO leads (id, customerId, status, source, assignedStaffId, noteCount, activityCount, value, statusHistory, createdAt, updatedAt)
-     VALUES (?,?,?,'manual',NULL,0,0,?,?,?,?)`
+     VALUES (?,?,?,'manual',?,0,0,?,?,?,?)`
   );
 
   let imported = 0;
@@ -55,13 +56,15 @@ export async function POST(req: NextRequest) {
       if (phoneIndex.has(norm)) { skipped.push({ row: rowNo, name, reason: "duplicate phone — already on file" }); return; }
 
       const stage = typeof r.stage === "string" && STAGE_KEYS.has(r.stage) ? r.stage : null;
+      const owner = stage ? pickOwner() : null;
       const id = `cus_imp_${Date.now().toString(36)}_${i}`;
       insCustomer.run(id, `BZ-C-${Date.now() + i}`, name, phone, r.email?.trim() || null, r.city?.trim() || null, r.state?.trim() || null,
-        r.businessName?.trim() || null, "prospect", stage, now, now);
+        r.businessName?.trim() || null, "prospect", owner, stage, now, now);
       if (stage) {
         const value = Math.max(0, Math.round(Number(r.value) || 0));
-        insLead.run(`lead_imp_${Date.now().toString(36)}_${i}`, id, stage, value,
+        insLead.run(`lead_imp_${Date.now().toString(36)}_${i}`, id, stage, owner, value,
           JSON.stringify([{ status: stage, at: now }]), now, now);
+        bumpLoad(owner, 1);
         leads++;
       }
       phoneIndex.set(norm, id); // intra-batch dupes get caught too
